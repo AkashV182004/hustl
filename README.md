@@ -7,6 +7,40 @@ It installs on desktop and mobile, works fully offline, and syncs between your d
 - Data is saved on the device first (IndexedDB), then synced to Supabase when online.
 - Optional app lock with your device's fingerprint, face or PIN.
 
+## Live app
+**https://akashv182004.github.io/hustl/**
+
+## Install it
+The app installs like a normal app (its own icon and window) and keeps working offline.
+
+**Windows or Mac: Chrome or Edge**
+1. Open the link above.
+2. Click the **install icon** at the right end of the address bar (a screen with a ↓ arrow), or use
+   **Settings → Install** inside the app.
+   - Chrome menu: **⋮ → Cast, save and share → Install page as app…**
+   - Edge menu: **⋯ → Apps → Install this site as an app**
+3. Click **Install**. It appears in the Start menu / Applications and can be pinned to the taskbar or Dock.
+
+**Android: Chrome**
+1. Open the link in **Chrome**.
+2. Tap **Install** on the banner, or **⋮ → Install app** (on some phones: **Add to Home screen**).
+3. Tap **Install**. The **To-Do** icon appears on your home screen.
+
+**iPhone or iPad: Safari**
+1. Open the link in **Safari** (other browsers on iPhone can't install apps).
+2. Tap the **Share** button (square with an ↑ arrow).
+3. Scroll down and tap **Add to Home Screen** (on newer iOS it may be under **More**), then **Add**.
+4. Open it from the **To-Do** icon. Sign in inside the installed app; it doesn't share sign-ins with Safari.
+
+**Updates:** when a new version is published, the app shows **"Update available"**; tap it to refresh.
+
+## Publish a change
+Edit the files, bump the version (see *Releasing an update* below), then:
+```bash
+git add -A && git commit -m "Describe the change" && git push
+```
+GitHub Pages republishes the site within a minute or two.
+
 ## Set up sync (Supabase)
 
 The to-do list works without any of this. You need it only for syncing between devices (and, later, for chat).
