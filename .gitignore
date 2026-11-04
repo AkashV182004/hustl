@@ -1,0 +1,4 @@
+node_modules/
+tests/shots/
+# one-off checks against the live project (they create test accounts)
+tests/_*.mjs

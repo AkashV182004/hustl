@@ -1,0 +1,20 @@
+{
+  "name": "hustl",
+  "version": "2.3.0",
+  "private": true,
+  "description": "Hustl — an offline-first to-do list PWA with a vinyl daily streak.",
+  "scripts": {
+    "test": "node tests/version.mjs && node tests/sql.mjs && node tests/phase1.mjs && node tests/lock.mjs && node tests/sync.mjs && node tests/social.mjs && node tests/chat.mjs",
+    "test:sql": "node tests/sql.mjs",
+    "test:app": "node tests/phase1.mjs",
+    "test:lock": "node tests/lock.mjs",
+    "test:sync": "node tests/sync.mjs",
+    "test:social": "node tests/social.mjs",
+    "test:chat": "node tests/chat.mjs",
+    "icons": "node tests/make-icons.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.15",
+    "playwright": "^1.64.1"
+  }
+}

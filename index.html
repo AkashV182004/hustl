@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hustl · My To-Do</title>
+  <meta name="description" content="Hustl — a cozy, offline-first to-do list with a vinyl daily streak.">
+  <meta name="theme-color" content="#f3e9d2">
+  <meta name="color-scheme" content="light dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="To-Do">
+  <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/playfair.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css?v=2.3.0">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { var t = localStorage.getItem('hustl:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+    // App lock: hide everything until the device verifies the user (see lock.js).
+    try { var l = JSON.parse(localStorage.getItem('hustl:lock') || 'null'); if (l && l.credId) document.documentElement.classList.add('locked'); } catch (e) {}
+  </script>
+</head>
+<body>
+  <!-- Shared SVG gradients for the tonearm -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="chrome" x1="0" x2="1">
+        <stop offset="0" stop-color="#8e8a85"/><stop offset=".35" stop-color="#f4f1ec"/><stop offset=".55" stop-color="#c9c4bd"/><stop offset="1" stop-color="#6f6b66"/>
+      </linearGradient>
+      <radialGradient id="brushed" cx=".4" cy=".35" r=".7">
+        <stop offset="0" stop-color="#f2efe9"/><stop offset=".6" stop-color="#b9b3ab"/><stop offset="1" stop-color="#77716b"/>
+      </radialGradient>
+      <linearGradient id="headshell" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="#3a3532"/><stop offset="1" stop-color="#121010"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- Navigation: radio-style push buttons -->
+    <nav class="radio-nav" aria-label="Main">
+      <div class="radio-brand" aria-hidden="true">
+        <span class="mini-vinyl"></span>
+        <span class="brand-text"><span class="brand-name">Hustl</span><span class="brand-sub">Records · Side A</span></span>
+      </div>
+      <button class="radio-key" data-screen="tasks" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.2 1.2L6.8 5M3.5 12l1.2 1.2 2.1-2.2M3.5 18l1.2 1.2 2.1-2.2"/></svg>
+        <span>Tasks</span>
+      </button>
+      <button class="radio-key" data-screen="chats">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v10H9l-5 4z"/></svg>
+        <span>Chats</span>
+      </button>
+      <button class="radio-key" data-screen="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/></svg>
+        <span>Settings</span>
+      </button>
+      <div class="nav-foot" aria-hidden="true"><span class="led"></span> Hi-Fi stereo</div>
+    </nav>
+
+    <main class="stage">
+      <!-- Header: concert-poster hero -->
+      <header class="hero">
+        <div class="hero-row">
+          <span class="eyebrow">Hustl<span class="long"> Records presents</span></span>
+          <div class="utility">
+            <span id="onair" class="onair" data-state="offline" role="status" title="Saved on this device"><i class="bulb"></i><b>ON AIR</b><span class="onair-label">Local</span></span>
+            <button id="installBtn" class="btn small" hidden>Install</button>
+            <button id="lampBtn" class="icon-btn lamp" aria-label="Toggle late night mode" aria-pressed="false">
+              <svg viewBox="0 0 32 40" aria-hidden="true"><path class="glow" d="M3 18h26l-6 14H9z"/><path class="shade" d="M9 4h14l6 14H3z"/><rect class="pole" x="15" y="18" width="2" height="15"/><rect class="pole" x="9" y="33" width="14" height="4" rx="2"/><path class="chain" d="M24 18v7"/><circle class="chain" cx="24" cy="26.5" r="1.6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="hero-main">
+          <div>
+            <h1 class="hero-title">My To-Do</h1>
+            <p class="hero-sub">an evening of getting things done</p>
+            <button class="hero-streak" id="heroStreak" type="button" data-state="lost"><span aria-hidden="true">🔥</span><span id="heroStreakText">Start a streak</span></button>
+          </div>
+          <div class="ticket" aria-label="Today's date">
+            <span class="ticket-admit">Admit one</span>
+            <span id="ticketDay" class="ticket-day">—</span>
+            <span id="ticketDate" class="ticket-date">—</span>
+            <span class="ticket-no" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="stripes" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      </header>
+
+      <!-- ============ TASKS ============ -->
+      <section id="screen-tasks" class="screen tasks-screen" aria-label="Tasks">
+        <div class="col col-left">
+          <article class="streak-card" id="streakCard" data-state="lost" aria-labelledby="streakTitle">
+            <div class="deck">
+              <div class="platter">
+                <div class="record" id="record">
+                  <div class="record-label">
+                    <svg viewBox="0 0 100 100" aria-hidden="true"><defs><path id="arc" d="M50 50 m-41 0 a41 41 0 1 1 82 0 a41 41 0 1 1 -82 0"/></defs><text><textPath href="#arc">HUSTL RECORDS · SIDE A · 33⅓ RPM · DAILY GROOVE ·</textPath></text></svg>
+                  </div>
+                </div>
+                <div class="sheen" aria-hidden="true"></div>
+                <div class="label-static" aria-live="polite">
+                  <span class="streak-num" id="streakNum">0</span>
+                  <span class="streak-fire" aria-hidden="true">🔥</span>
+                  <span class="streak-unit" id="streakUnit">days</span>
+                </div>
+              </div>
+              <svg class="tonearm" viewBox="0 0 80 220" aria-hidden="true">
+                <circle cx="56" cy="26" r="21" fill="#1d1a18"/>
+                <circle cx="56" cy="26" r="17" fill="url(#brushed)"/>
+                <rect x="48" y="0" width="16" height="15" rx="4" fill="url(#chrome)"/>
+                <path d="M56 26 L56 150 Q56 170 40 186" fill="none" stroke="#3b3734" stroke-width="7" stroke-linecap="round"/>
+                <path d="M56 26 L56 150 Q56 170 40 186" fill="none" stroke="url(#chrome)" stroke-width="5" stroke-linecap="round"/>
+                <circle cx="56" cy="26" r="6" fill="#2b2826"/>
+                <path d="M32 179 l15 10.5 l-8.5 14.5 l-15 -10.5 z" fill="url(#headshell)" stroke="#9c958d" stroke-width="1"/>
+              </svg>
+              <div class="controls" aria-hidden="true">
+                <span class="speed on">33</span><span class="speed">45</span><span class="power"></span>
+              </div>
+            </div>
+            <div class="streak-info">
+              <div class="streak-head">
+                <h2 id="streakTitle" class="eyebrow-dark">Daily streak</h2>
+                <div class="best" title="Best streak"><span class="gold-record" aria-hidden="true"></span>Best <b id="bestNum">0</b></div>
+              </div>
+              <p class="streak-msg" id="streakMsg">Finish a task today to start a streak.</p>
+            </div>
+          </article>
+
+          <div class="stats" aria-label="Stats">
+            <div class="stat s-mustard"><span class="stat-name">Done today</span><span class="stat-val" id="statToday">0</span></div>
+            <div class="stat s-orange"><span class="stat-name">Days active</span><span class="stat-val" id="statDays">0</span></div>
+            <div class="stat s-teal"><span class="stat-name">Completion</span><span class="stat-val" id="statPct">0%</span></div>
+          </div>
+
+          <figure class="vu" aria-labelledby="vuCap">
+            <figcaption id="vuCap"><span>Last 7 days</span><span class="vu-brand" aria-hidden="true">VU · Hi-Fi</span></figcaption>
+            <div class="vu-meter" id="vuMeter" role="img" aria-label="Tasks completed in the last 7 days"></div>
+          </figure>
+        </div>
+
+        <div class="col col-right">
+          <form class="add-bar" id="addForm" autocomplete="off">
+            <label for="taskInput" class="sr-only">New task</label>
+            <input id="taskInput" class="add-input" type="text" maxlength="500" placeholder="Write a new track…" enterkeyhint="done">
+            <button class="add-btn" type="submit" aria-label="Add task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="add-word">Add</span></button>
+          </form>
+
+          <div class="list-card">
+            <div class="list-head">
+              <div class="segmented" role="tablist" aria-label="Filter tasks">
+                <button role="tab" class="ftab" data-filter="active" aria-selected="true">Active</button>
+                <button role="tab" class="ftab" data-filter="done" aria-selected="false">Done</button>
+                <button role="tab" class="ftab" data-filter="all" aria-selected="false">All</button>
+              </div>
+            </div>
+            <ul class="task-list" id="taskList" aria-live="polite"></ul>
+            <p class="empty" id="emptyState" hidden>Quiet room… add your first track 🎸</p>
+            <footer class="list-foot">
+              <span id="leftCount">0 tasks left</span>
+              <button class="btn ghost small" id="clearDone">Clear completed</button>
+            </footer>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CHATS ============ -->
+      <section id="screen-chats" class="screen chats" aria-label="Chats" hidden>
+        <div class="chats-col">
+          <div class="screen-head">
+            <h2 class="section-title">Chats</h2>
+            <button class="btn" type="button" id="addFriendBtn" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 19.5c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/></svg>
+              Add friend
+            </button>
+          </div>
+
+          <div class="panel postcard" id="chatsSignedOut">
+            <p class="hand big">Sign in to follow friends and swap notes.</p>
+            <p class="note">Your to-do list works without an account. Chat needs one so friends can find you.</p>
+            <button class="btn" type="button" id="goSignIn">Sign in from Settings</button>
+          </div>
+
+          <div id="chatsSignedIn" hidden>
+            <div class="panel id-card">
+              <div class="id-text">
+                <span class="eyebrow-dark">Your User ID</span>
+                <b class="handle" data-my-handle>—</b>
+                <span class="note">Share it so friends can follow you.</span>
+                <span class="follow-counts" id="followCounts"></span>
+              </div>
+              <button class="btn ghost small" type="button" data-copy-handle>Copy</button>
+            </div>
+            <p class="note offline-msg" id="socialOffline" hidden>Radio's off… reconnect to chat. Showing your saved friends list.</p>
+
+            <section class="people" id="friendsSec" aria-labelledby="friendsTitle">
+              <h3 id="friendsTitle">Friends</h3>
+              <ul class="person-list" id="friendsList"></ul>
+            </section>
+            <section class="people" id="requestsSec" aria-labelledby="requestsTitle">
+              <h3 id="requestsTitle">Follows you</h3>
+              <p class="note">Follow each other to start chatting.</p>
+              <ul class="person-list" id="requestsList"></ul>
+            </section>
+            <section class="people" id="waitingSec" aria-labelledby="waitingTitle">
+              <h3 id="waitingTitle">Waiting for them</h3>
+              <p class="note">They need to follow you back before you can chat.</p>
+              <ul class="person-list" id="waitingList"></ul>
+            </section>
+            <div class="panel people-empty" id="peopleEmpty">
+              <p class="hand big">No friends here yet 🎧</p>
+              <p class="note">Tap <b>Add friend</b> and enter their User ID, or share yours above. You can chat once you follow each other.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat column: beside the list on a computer, full screen on a phone -->
+        <div class="convo-placeholder" id="convoPlaceholder" hidden>
+          <p class="hand big">Pick a friend to start chatting 💬</p>
+          <p class="note">Notes disappear after 7 days.</p>
+        </div>
+        <section class="convo" id="convo" aria-labelledby="convoName" hidden>
+          <header class="convo-head">
+            <button class="icon-plain" type="button" id="convoBack" aria-label="Back to chats">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <span class="avatar" id="convoAvatar" aria-hidden="true"></span>
+            <span class="convo-who">
+              <b id="convoName"></b>
+              <span class="person-sub" id="convoSub"></span>
+            </span>
+          </header>
+          <ol class="note-list" id="noteList" aria-live="polite"></ol>
+          <p class="convo-locked" id="convoLocked" hidden>Follow each other to start chatting.</p>
+          <form class="composer" id="composer" novalidate>
+            <label class="sr-only" for="composerText">Write a note</label>
+            <textarea id="composerText" class="field" rows="1" maxlength="4000" placeholder="Write a note…" enterkeyhint="send"></textarea>
+            <button class="icon-plain camera-btn" type="button" id="cameraBtn" aria-label="Take a picture" title="Take a picture">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3.2l1.6-2.5h6.4l1.6 2.5H20v10H4z"/><circle cx="12" cy="13" r="3.6"/></svg>
+            </button>
+            <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+            <input type="file" id="photoPick" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+            <button class="btn send-btn" type="submit" id="composerSend" aria-label="Send">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/></svg>
+            </button>
+          </form>
+        </section>
+      </section>
+
+      <!-- ============ SETTINGS ============ -->
+      <section id="screen-settings" class="screen settings" aria-label="Settings" hidden>
+        <h2 class="section-title">Settings</h2>
+
+        <div class="panel" id="accountPanel">
+          <h3>Sync &amp; account</h3>
+          <div id="acctUnconfigured">
+            <p class="note">Your list lives on this device and works fully offline. Sync isn't set up yet — add your Supabase project details to <code>config.js</code> (see README).</p>
+          </div>
+          <form id="acctSignin" class="auth-form" hidden novalidate>
+            <p class="note">Your list works fully offline. Sign in to sync it across your devices.</p>
+            <label class="field-label" for="acctUser">Username</label>
+            <input id="acctUser" class="field" type="text" autocomplete="username" autocapitalize="none" spellcheck="false"
+                   maxlength="20" placeholder="letters, numbers or _" required>
+            <label class="field-label" for="acctPassword">Password</label>
+            <input id="acctPassword" class="field" type="password" autocomplete="current-password" maxlength="72"
+                   placeholder="At least 8 characters" required>
+            <div class="row">
+              <button class="btn" type="submit" id="acctGo">Sign in</button>
+              <button class="btn ghost" type="button" id="acctCreate">Create account</button>
+            </div>
+          </form>
+          <div id="acctSignedIn" hidden>
+            <p class="note">Signed in as <b id="acctEmailShow"></b></p>
+            <p class="note" id="acctLastSync"></p>
+            <div class="profile-box" id="profileBox" hidden>
+              <span class="eyebrow-dark">Your User ID</span>
+              <div class="id-row">
+                <b class="handle" data-my-handle>—</b>
+                <button class="btn ghost small" type="button" data-copy-handle>Copy</button>
+              </div>
+              <form id="nameForm" novalidate>
+                <label class="field-label" for="displayName">Display name</label>
+                <div class="field-row">
+                  <input id="displayName" class="field" type="text" maxlength="40" autocomplete="nickname" required>
+                  <button class="btn ghost" type="submit">Save</button>
+                </div>
+              </form>
+            </div>
+            <div class="row">
+              <button class="btn" type="button" id="acctSyncNow">Sync now</button>
+              <button class="btn ghost" type="button" id="acctSignOut">Sign out</button>
+            </div>
+          </div>
+          <p class="note offline-msg" id="acctOffline" hidden>Radio's off… reconnect to sign in or sync.</p>
+        </div>
+
+        <div class="panel">
+          <h3>Lighting</h3>
+          <div class="segmented wide" role="radiogroup" aria-label="Theme">
+            <button class="dial-btn" role="radio" data-theme-choice="auto" aria-checked="true">Auto</button>
+            <button class="dial-btn" role="radio" data-theme-choice="light" aria-checked="false">Daylight</button>
+            <button class="dial-btn" role="radio" data-theme-choice="dark" aria-checked="false">Late night</button>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="soundToggle">
+            <span class="toggle-switch" aria-hidden="true"></span>
+            <span>Sound effects <small>guitar strum &amp; vinyl crackle</small></span>
+          </label>
+        </div>
+
+        <div class="panel" id="lockPanel">
+          <h3>App lock</h3>
+          <label class="toggle">
+            <input type="checkbox" id="lockToggle">
+            <span class="toggle-switch" aria-hidden="true"></span>
+            <span>Lock with fingerprint, face or PIN <small>Uses your device's own screen lock. Nothing leaves this device.</small></span>
+          </label>
+          <p class="note spaced">Lock again after leaving the app:</p>
+          <div class="segmented wide" role="radiogroup" aria-label="Lock again after">
+            <button class="dial-btn" role="radio" data-lock-after="0" aria-checked="false">Instantly</button>
+            <button class="dial-btn" role="radio" data-lock-after="60" aria-checked="false">1 min</button>
+            <button class="dial-btn" role="radio" data-lock-after="300" aria-checked="false">5 min</button>
+          </div>
+          <p class="note" id="lockNote"></p>
+        </div>
+
+        <div class="panel">
+          <h3>Backup</h3>
+          <p class="note">Save a copy of your tasks and streak, or bring one back.</p>
+          <div class="row">
+            <button class="btn" id="exportBtn">Export JSON</button>
+            <label class="btn ghost" for="importFile">Import JSON</label>
+            <input type="file" id="importFile" accept="application/json,.json" hidden>
+          </div>
+        </div>
+
+        <div class="panel" id="installPanel">
+          <h3>Install</h3>
+          <p class="note" id="installNote">Add Hustl to your home screen or desktop to use it like an app, even offline.</p>
+          <button class="btn" id="installBtn2" hidden>Install app</button>
+        </div>
+
+        <p class="colophon">Hustl · pressed with care · v<span id="appVersion"></span></p>
+      </section>
+    </main>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+
+  <!-- Take a picture (computer webcam; phones use their own camera app) -->
+  <dialog class="dlg camera-dlg" id="cameraDlg" aria-labelledby="cameraTitle">
+    <h3 id="cameraTitle">Take a picture</h3>
+    <div class="camera-stage">
+      <video id="cameraVideo" autoplay playsinline muted></video>
+      <img id="cameraShot" alt="Your photo" hidden>
+      <p class="camera-msg" id="cameraMsg" hidden></p>
+    </div>
+    <div class="row end">
+      <button class="btn ghost" type="button" id="cameraCancel">Cancel</button>
+      <button class="btn ghost" type="button" id="cameraRetake" hidden>Retake</button>
+      <button class="btn" type="button" id="cameraSnap">Capture</button>
+      <button class="btn" type="button" id="cameraSend" hidden>Send photo</button>
+    </div>
+    <button class="linkish" type="button" id="cameraPick">Choose a photo instead</button>
+  </dialog>
+
+  <!-- A photo, full screen -->
+  <dialog class="photo-view" id="photoView" aria-label="Photo">
+    <img id="photoViewImg" alt="">
+    <button class="photo-close" type="button" id="photoViewClose" aria-label="Close photo">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </dialog>
+
+  <!-- Add friend -->
+  <dialog class="dlg" id="addFriendDlg" aria-labelledby="addFriendTitle">
+    <form id="addFriendForm" novalidate>
+      <h3 id="addFriendTitle">Add a friend</h3>
+      <p class="note">Ask for their User ID (it's in their Settings), for example <code>vinyl-fox-4821</code>.</p>
+      <label class="field-label" for="friendId">Their User ID</label>
+      <input id="friendId" class="field" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="vinyl-fox-4821" required>
+      <p class="dlg-msg" id="addFriendMsg" role="alert"></p>
+      <div class="row end">
+        <button class="btn ghost" type="button" data-close>Cancel</button>
+        <button class="btn" type="submit" id="addFriendGo">Follow</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Confirm -->
+  <dialog class="dlg" id="confirmDlg" aria-labelledby="confirmText">
+    <p id="confirmText"></p>
+    <div class="row end">
+      <button class="btn ghost" type="button" data-close>Cancel</button>
+      <button class="btn" type="button" id="confirmOk">OK</button>
+    </div>
+  </dialog>
+
+  <!-- Lock screen (shown while html.locked) -->
+  <div class="lock-screen" id="lockScreen" role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+    <div class="lock-card">
+      <div class="lock-vinyl" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
+      </div>
+      <h2 id="lockTitle">Hustl is locked</h2>
+      <p>Use your fingerprint, face or device PIN to open your list.</p>
+      <button class="btn lock-btn" id="unlockBtn" type="button">Unlock</button>
+      <p class="lock-error" id="lockError" role="alert"></p>
+    </div>
+  </div>
+
+  <script src="config.js?v=2.3.0"></script>
+  <script src="vendor/supabase.js" defer></script>
+  <script src="app.js?v=2.3.0" defer></script>
+  <script src="sync.js?v=2.3.0" defer></script>
+  <script src="chat.js?v=2.3.0" defer></script>
+  <script src="lock.js?v=2.3.0" defer></script>
+</body>
+</html>
