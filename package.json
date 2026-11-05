@@ -1,6 +1,6 @@
 {
   "name": "hustl",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "private": true,
   "description": "Hustl — an offline-first to-do list PWA with a vinyl daily streak.",
   "scripts": {

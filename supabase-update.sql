@@ -1,5 +1,6 @@
 -- Hustl update 2.4 (Daily Track page): run once in Supabase → SQL Editor → New query → Run. Safe to run again.
--- Adds: Top Priorities (a priority flag on tasks) and synced Notes & Ideas / Important Reminders.
+-- Adds: Top Priorities (a priority flag on tasks), synced Notes & Ideas / Important Reminders,
+-- and live updates between your devices for tasks, the streak and notes.
 -- (Already included in supabase.sql for new projects.)
 
 -- Top Priorities on the Daily Track page: a task can be marked as a priority.
@@ -41,6 +42,15 @@ create policy "notes: own rows" on public.notes for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 do $$ begin
+  -- live updates between your devices for tasks and the streak, too
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'tasks') then
+    alter publication supabase_realtime add table public.tasks;
+  end if;
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'completion_log') then
+    alter publication supabase_realtime add table public.completion_log;
+  end if;
   if not exists (select 1 from pg_publication_tables
                  where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'notes') then
     alter publication supabase_realtime add table public.notes;

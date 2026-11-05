@@ -30,7 +30,7 @@
   let noPriorityColumn = false, noNotesTable = false;
   const missingColumn = e => e && (e.code === '42703' || e.code === 'PGRST204' || /priority/.test(e.message || ''));
   const missingTable = e => e && (e.code === '42P01' || e.code === 'PGRST205' || /notes/.test(e.message || '') && /not find|does not exist/.test(e.message || ''));
-  let live = null;          // Realtime channel: tells this device the moment another device saves
+  let live = null;          // Realtime channels (one per table): tell this device the moment another device saves
   const outbox = new Set(); // ids of tasks changed locally and not yet pushed
 
   /* ---------------- ON AIR light ---------------- */
@@ -242,15 +242,16 @@
     };
     const onLog = ({ new: r }) => { if (!r || (H.state.log[r.day] || 0) < r.count) schedule(150); };
     const onNote = ({ new: r }) => { const n = r && H.state.notes[r.kind]; if (!n || iso(r.updated_at) !== n.updated_at) schedule(150); };
-    live = sb.channel('hustl-sync-' + session.user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter }, onTask)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'completion_log', filter }, onLog)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter }, onNote)
-      // Catch anything missed while connecting, unless a sync has only just finished.
-      .subscribe(status => { if (status === 'SUBSCRIBED' && (!lastSync || Date.now() - Date.parse(lastSync) > 5000)) schedule(150); });
+    // One channel per table: if a table isn't set up for live updates yet, Supabase refuses that channel
+    // only, and the others keep working (the 60-second refresh covers the rest).
+    const caughtUp = status => { if (status === 'SUBSCRIBED' && (!lastSync || Date.now() - Date.parse(lastSync) > 5000)) schedule(150); };
+    live = [['tasks', onTask], ['completion_log', onLog], ['notes', onNote]].map(([table, fn]) =>
+      sb.channel(`hustl-${table}-${session.user.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table, filter }, fn)
+        .subscribe(caughtUp));
   }
   function stopLive() {
-    if (live) { sb.removeChannel(live); live = null; }
+    if (live) { live.forEach(ch => sb.removeChannel(ch)); live = null; }
   }
 
   async function signOut() {
