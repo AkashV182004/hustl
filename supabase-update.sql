@@ -1,6 +1,7 @@
--- Hustl update 2.5 (reminder alarms): run once in Supabase → SQL Editor → New query → Run. Safe to run again.
--- Adds: "Important Reminders" with a date and time (alarms), synced between your devices,
--- plus live updates for tasks and the streak if they aren't on yet. (Already in supabase.sql for new projects.)
+-- Hustl update 2.6 (reminder alarms + push): run once in Supabase → SQL Editor → New query → Run. Safe to run again.
+-- Adds: "Important Reminders" with a date and time (alarms), synced between your devices; the device list for
+-- notifications that arrive even when Hustl is closed; and live updates for tasks and the streak.
+-- (Already in supabase.sql for new projects. The every-30-seconds schedule is in supabase-push-schedule.sql.)
 
 -- ---------------------------------------------------------------------
 -- ALARMS — "Important Reminders" with a date and time. Synced like tasks: last write wins by updated_at.
@@ -38,6 +39,55 @@ alter table public.alarms enable row level security;
 drop policy if exists "alarms: own rows" on public.alarms;
 create policy "alarms: own rows" on public.alarms for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+
+
+-- ---------------------------------------------------------------------
+-- PUSH — devices that get reminder alarms even when Hustl is closed (Web Push).
+-- The app saves its device through save_push_subscription(); only the "push" Edge Function
+-- (server side, service key) reads this table. pushed_at stops a reminder going out twice.
+-- ---------------------------------------------------------------------
+alter table public.alarms add column if not exists pushed_at timestamptz;
+
+create table if not exists public.push_subscriptions (
+  endpoint   text primary key,                       -- the browser's push address (unique per device + browser)
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  p256dh     text not null,
+  auth       text not null,
+  tz         text,                                   -- so the notification shows the person's own time
+  user_agent text,
+  updated_at timestamptz not null default now()
+);
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
+alter table public.push_subscriptions enable row level security;   -- no policies: no direct access from the app
+revoke all on public.push_subscriptions from anon, authenticated;
+
+create or replace function public.save_push_subscription(p_endpoint text, p_p256dh text, p_auth text, p_tz text, p_user_agent text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if p_endpoint !~ '^https://' or char_length(p_endpoint) > 1000
+     or coalesce(p_p256dh, '') = '' or coalesce(p_auth, '') = '' then
+    raise exception 'invalid subscription' using errcode = '22023';
+  end if;
+  -- the device now belongs to whoever is signed in on it
+  insert into public.push_subscriptions (endpoint, user_id, p256dh, auth, tz, user_agent, updated_at)
+  values (p_endpoint, auth.uid(), left(p_p256dh, 200), left(p_auth, 100), left(p_tz, 64), left(p_user_agent, 200), now())
+  on conflict (endpoint) do update
+    set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth,
+        tz = excluded.tz, user_agent = excluded.user_agent, updated_at = now();
+  -- keep at most 10 devices per person (drop the oldest)
+  delete from public.push_subscriptions where endpoint in (
+    select endpoint from public.push_subscriptions where user_id = auth.uid() order by updated_at desc offset 10);
+end $$;
+
+create or replace function public.remove_push_subscription(p_endpoint text)
+returns void language sql security definer set search_path = public as $$
+  delete from public.push_subscriptions where endpoint = p_endpoint and user_id = auth.uid();
+$$;
+revoke all on function public.save_push_subscription(text, text, text, text, text) from public, anon;
+revoke all on function public.remove_push_subscription(text) from public, anon;
+grant execute on function public.save_push_subscription(text, text, text, text, text) to authenticated;
+grant execute on function public.remove_push_subscription(text) to authenticated;
 
 do $$ begin
   if not exists (select 1 from pg_publication_tables

@@ -508,6 +508,7 @@
   function renderNavBadge() {
     let badge = els.navKey.querySelector('.nav-badge');
     const total = me ? msgs.filter(m => m.recipient_id === me.id && !m.read_at && isMutual(personById(m.sender_id))).length : 0;
+    H.setBadge && H.setBadge('chat', total);
     if (!total) { if (badge) badge.remove(); return; }
     if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; els.navKey.appendChild(badge); }
     badge.textContent = total > 99 ? '99+' : total;
@@ -785,7 +786,7 @@
       }
     });
     els.back.addEventListener('click', () => closeConvo());
-    addEventListener('popstate', () => { if (openId) closeConvo(true); });
+    addEventListener('popstate', () => { if (openId && !(history.state && history.state.convo)) closeConvo(true); });
     addEventListener('keydown', e => { if (e.key === 'Escape' && openId && !document.querySelector('dialog[open]')) closeConvo(); });
 
     H.on((type, detail) => {

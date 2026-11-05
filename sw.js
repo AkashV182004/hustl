@@ -1,6 +1,6 @@
 /* Hustl service worker — cache-first app shell, versioned cache.
    Bump VERSION on every deploy so clients pick up the new files (and the ?v= tags in index.html: tests/version.mjs checks they match). */
-const VERSION = 'hustl-v2.5.1';
+const VERSION = 'hustl-v2.7.0';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './sync.js', './chat.js', './lock.js', './config.js',
   './manifest.webmanifest', './vendor/supabase.js',
@@ -53,16 +53,39 @@ self.addEventListener('fetch', event => {
   })());
 });
 
+// A push from the server (supabase/functions/push): a reminder is due, or one was added on another device.
+// If Hustl is open and in front, it rings there instead; otherwise show a notification, even with Hustl closed.
+self.addEventListener('push', event => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { d = { title: 'Hustl', body: event.data ? event.data.text() : '' }; }
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const front = wins.find(w => w.focused && w.visibilityState === 'visible');
+    if (front) { front.postMessage({ type: 'push', data: d }); return; }
+    const due = d.kind === 'due';
+    await self.registration.showNotification(d.title || 'Hustl', {
+      body: d.body || '', tag: d.tag || 'hustl', renotify: true, requireInteraction: due,
+      icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: due ? [300, 150, 300, 150, 600] : [120],
+      data: { alarm: d.alarm || null, kind: d.kind || null },
+      actions: due ? [{ action: 'snooze', title: 'Snooze 10 min' }, { action: 'done', title: 'Done' }] : [],
+    });
+  })());
+});
+
 // Tapping a reminder notification: open (or focus) Hustl and pass on Snooze / Done.
 self.addEventListener('notificationclick', event => {
   const id = event.notification.data && event.notification.data.alarm;
+  const action = event.action === 'done' || event.action === 'snooze' ? event.action : null;
   event.notification.close();
-  if (!id) return;
   event.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const win = wins[0] || await self.clients.openWindow('./');
-    if (!win) return;
-    if (win.focus) await win.focus().catch(() => {});
-    if (event.action === 'done' || event.action === 'snooze') win.postMessage({ type: 'alarm', id, action: event.action });
+    if (wins.length) {
+      const win = wins[0];
+      if (win.focus) await win.focus().catch(() => {});
+      if (id && action) win.postMessage({ type: 'alarm', id, action });
+      return;
+    }
+    // Hustl was closed: open it and let it carry out the action once it has loaded
+    await self.clients.openWindow(id && action ? `./?alarm=${encodeURIComponent(id)}&do=${action}#tasks` : './#tasks');
   })());
 });

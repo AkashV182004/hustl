@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '2.5.1';
+  const APP_VERSION = '2.7.0';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -224,7 +224,7 @@
     if (at.getTime() < Date.now() - 30 * 1000) return { error: 'That time has already passed. Pick a time in the future.' };
     if (liveAlarms().filter(a => !a.done_at).length >= ALARM_MAX) return { error: `You can have up to ${ALARM_MAX} alarms set.` };
     const ts = nowISO();
-    const a = { id: uuid(), text, due_at: at.toISOString(), done_at: null, deleted: false, updated_at: ts };
+    const a = { id: uuid(), text, due_at: at.toISOString(), done_at: null, deleted: false, updated_at: ts, announce: true };
     state.alarms.push(a);
     await saveAlarms();
     emit('alarms', [a]);
@@ -267,6 +267,7 @@
       // a reminder dismissed on another device stops ringing here too
       if (ringing) { const a = byId.get(ringing); if (!a || a.done_at || a.deleted || ringKey(a) !== els.alarmDlg.dataset.key) closeAlarm(); }
       renderAlarms(); scheduleAlarms();
+      applyPendingAlarmAction();
       for (const a of arrived.slice(0, 3)) {
         notifyAdded('⏰ New reminder', `${a.text}\n${fmtAlarmTime(a.due_at)}`, 'alarm-new-' + a.id, `⏰ New reminder: ${a.text} · ${fmtAlarmTime(a.due_at)}`);
       }
@@ -406,11 +407,14 @@
       els.alarmAt.value = localInputValue(d);
     }
     renderAlarmHint();
+    setBadge('alarms', open.filter(a => Date.parse(a.due_at) <= now).length);
   }
 
   function renderAlarmHint() {
     const has = 'Notification' in window, perm = has ? Notification.permission : 'unsupported';
-    els.alarmHintText.textContent = perm === 'granted' ? 'Alarms ring while Hustl is open or in the background, with a notification.'
+    els.alarmHintText.textContent = isIOS() && !isStandalone() ? 'On iPhone, add Hustl to your Home Screen so reminders can reach you when it’s closed.'
+      : perm === 'granted' && pushActive ? 'Alarms reach you even when Hustl is closed.'
+      : perm === 'granted' ? 'Alarms ring while Hustl is open or in the background, with a notification.'
       : perm === 'denied' ? 'Alarms ring while Hustl is open. Notifications are blocked in your browser settings.'
       : perm === 'unsupported' ? 'Alarms ring while Hustl is open.'
       : 'Alarms ring while Hustl is open or in the background.';
@@ -419,7 +423,33 @@
   async function askNotifications() {
     if (!('Notification' in window) || Notification.permission !== 'default') return;
     try { await Notification.requestPermission(); } catch {}
-    renderAlarmHint();
+    renderAlarmHint(); renderPhoneCard();
+    if (Notification.permission === 'granted') dispatchEvent(new Event('hustl:notify-allowed'));   // sync.js registers this device for push
+  }
+  let pushActive = false;
+  function setPushActive(on) { pushActive = !!on; renderAlarmHint(); }
+
+  // Snooze / Done tapped on a notification while Hustl was closed: it opens with ?alarm=…&do=…
+  let pendingAlarmAction = null;
+  function takeUrlAction() {
+    const q = new URLSearchParams(location.search);
+    if (q.get('go') === 'reminder') {   // the "Set a reminder" home-screen shortcut
+      history.replaceState(null, '', location.pathname + '#tasks');
+      setTimeout(() => { els.alarmText.scrollIntoView({ block: 'center' }); els.alarmText.focus(); }, 300);
+      return;
+    }
+    if (!q.get('alarm') || !['done', 'snooze'].includes(q.get('do'))) return;
+    pendingAlarmAction = { id: q.get('alarm'), action: q.get('do') };
+    history.replaceState(null, '', location.pathname + '#tasks');
+    applyPendingAlarmAction();
+  }
+  async function applyPendingAlarmAction() {
+    const p = pendingAlarmAction;
+    if (!p || !state.alarms.some(a => a.id === p.id)) return;   // not here yet: tried again when the reminders arrive
+    pendingAlarmAction = null;
+    if (ringing === p.id) closeAlarm();
+    if (p.action === 'done') { await completeAlarm(p.id); toast('Reminder done ✓'); }
+    else { await snoozeAlarm(p.id); toast(`Snoozed for ${SNOOZE_MIN} minutes 💤`); }
   }
 
   async function deleteTask(id) {
@@ -709,8 +739,16 @@
   }
 
   /* ---------------- Navigation ---------------- */
-  function showScreen(name) {
+  // Back (Android button / gesture) works like an app: Chats or Settings → back to the to-do list.
+  let screenPushed = false;
+  function showScreen(name, { nav = false } = {}) {
     if (!['tasks', 'chats', 'settings'].includes(name)) name = 'tasks';
+    if (nav && name === 'tasks' && screenPushed && history.state && history.state.screen) { screenPushed = false; history.back(); return; }
+    if (nav && name !== 'tasks' && !screenPushed && location.hash !== '#' + name) {
+      history.pushState({ screen: name }, '', '#' + name);
+      screenPushed = true;
+    }
+    if (name === 'tasks') screenPushed = false;
     $$('.screen').forEach(s => { s.hidden = s.id !== 'screen-' + name; });
     $$('.radio-key').forEach(b => {
       if (b.dataset.screen === name) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
@@ -765,12 +803,92 @@
     els.install.addEventListener('click', promptInstall);
     els.install2.addEventListener('click', promptInstall);
     updateInstallUI();
-    if (isIOS() && !isStandalone()) {
-      let seen = false; try { seen = localStorage.getItem('hustl:iosHint') === '1'; } catch {}
-      if (!seen) {
-        setTimeout(() => toast('Install: tap Share → Add to Home Screen', { sticky: true, action: () => {}, actionLabel: 'Got it' }), 1500);
-        try { localStorage.setItem('hustl:iosHint', '1'); } catch {}
-      }
+  }
+
+  /* ---------------- Phone app: install card, Back button, keyboard, badge, haptics ---------------- */
+  const isPhone = () => matchMedia('(pointer: coarse)').matches || /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+  const buzz = ms => { try { if (isPhone()) navigator.vibrate?.(ms); } catch {} };
+
+  // The card at the top of Tasks: first install Hustl (phones), then allow notifications so alarms
+  // reach you even when it's closed. "Not now" hides that step for a week.
+  function phoneStep() {
+    const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+    if (isPhone() && !isStandalone()) {
+      if (isIOS()) return { key: 'install-ios', title: 'Add Hustl to your Home Screen', go: 'How?',
+        text: 'It opens like an app and works offline. On iPhone, reminders can only reach you when Hustl is closed if it’s installed.' };
+      return { key: 'install', title: 'Install Hustl on your phone', go: deferredPrompt ? 'Install' : 'How?',
+        text: 'It opens like an app, works offline, and reminder alarms reach you even when it’s closed.' };
+    }
+    if (perm === 'default') return { key: 'notify', title: 'Turn on reminder alarms', go: 'Turn on',
+      text: 'Allow notifications so your reminders ring even when Hustl is closed.' };
+    if (perm === 'denied') return { key: 'denied', title: 'Reminder alarms are blocked', go: 'OK',
+      text: isPhone() ? 'Turn on notifications for Hustl (To-Do) in your phone’s Settings → Apps → Notifications.' : 'Allow notifications for this site in your browser’s settings.' };
+    return null;
+  }
+  function renderPhoneCard() {
+    if (!els.phoneCard) return;
+    const step = phoneStep();
+    let hidden = !step;
+    if (step) { try { hidden = Date.now() < Number(localStorage.getItem('hustl:card:' + step.key) || 0); } catch {} }
+    els.phoneCard.hidden = hidden;
+    if (hidden) return;
+    els.phoneCard.dataset.step = step.key;
+    els.phoneTitle.textContent = step.title;
+    els.phoneText.textContent = step.text;
+    els.phoneGo.textContent = step.go;
+  }
+  async function phoneCardGo() {
+    const key = els.phoneCard.dataset.step;
+    if (key === 'install' && deferredPrompt) await promptInstall();
+    else if (key === 'install') toast('In Chrome, tap ⋮ (top right) → Install app (or Add to Home screen).', { sticky: true, actionLabel: 'Got it', action: () => {} });
+    else if (key === 'install-ios') toast('In Safari, tap Share (the square with ↑), scroll down, tap Add to Home Screen, then Add.', { sticky: true, actionLabel: 'Got it', action: () => {} });
+    else if (key === 'notify') await askNotifications();
+    else if (key === 'denied') hidePhoneCard();
+    renderPhoneCard();
+  }
+  function hidePhoneCard() {
+    try { localStorage.setItem('hustl:card:' + els.phoneCard.dataset.step, String(Date.now() + 7 * 864e5)); } catch {}
+    renderPhoneCard();
+  }
+
+  // App icon badge: unread chats + overdue reminders (where the phone supports it).
+  const badgeParts = {};
+  function setBadge(part, n) {
+    badgeParts[part] = n || 0;
+    const total = Object.values(badgeParts).reduce((a, b) => a + b, 0);
+    try { if (total) navigator.setAppBadge?.(total); else navigator.clearAppBadge?.(); } catch {}
+  }
+
+  function setupPhone() {
+    els.phoneGo.addEventListener('click', phoneCardGo);
+    els.phoneClose.addEventListener('click', hidePhoneCard);
+    addEventListener('appinstalled', renderPhoneCard);
+    addEventListener('beforeinstallprompt', () => setTimeout(renderPhoneCard, 0));
+    renderPhoneCard();
+
+    // Back closes the open pop-up first (instead of leaving the app).
+    const show = HTMLDialogElement.prototype.showModal;
+    HTMLDialogElement.prototype.showModal = function () {
+      show.call(this);
+      if (this.dataset.hist) return;
+      this.dataset.hist = '1';
+      history.pushState({ ...(history.state || {}), dlg: this.id }, '');
+      this.addEventListener('close', () => {
+        delete this.dataset.hist;
+        if (history.state && history.state.dlg === this.id) history.back();
+      }, { once: true });
+    };
+    addEventListener('popstate', () => {
+      const top = [...document.querySelectorAll('dialog[open]')].pop();
+      if (top && top.dataset.hist && !(history.state && history.state.dlg === top.id)) top.close();
+    });
+
+    // On-screen keyboard open → hide the bottom menu so the box you type in stays visible.
+    const vv = window.visualViewport;
+    if (vv) {
+      const kb = () => document.body.classList.toggle('kb-open', isPhone() && innerHeight - vv.height > 150);
+      vv.addEventListener('resize', kb);
+      addEventListener('focusout', () => setTimeout(kb, 300));
     }
   }
 
@@ -831,7 +949,7 @@
         const btn = $('.task-check', li);
         btn.setAttribute('aria-pressed', String(!!r.task.done_at));
         btn.setAttribute('aria-label', (r.task.done_at ? 'Mark not done: ' : 'Mark done: ') + r.task.text);
-        if (r.task.done_at) { inkSplash(li); sound.strum(); }
+        if (r.task.done_at) { inkSplash(li); sound.strum(); buzz(12); }
         renderStreak(); renderStats();
         if (r.streakUp) popStreak();
         if (inPrio || !matchesFilter(r.task)) {
@@ -879,6 +997,8 @@
       if (r.error) return toast(r.error);
       els.alarmText.value = '';
       toast(`⏰ Alarm set for ${fmtAlarmTime(r.alarm.due_at)}`);
+      buzz(20);
+      renderPhoneCard();
     });
     els.alarmText.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); els.alarmForm.requestSubmit(); } });
     els.alarmAllow.addEventListener('click', askNotifications);
@@ -895,6 +1015,11 @@
     // Snooze / Done tapped on a system notification (sent here by the service worker)
     navigator.serviceWorker?.addEventListener('message', async e => {
       const m = e.data || {};
+      if (m.type === 'push') {   // a push arrived while Hustl is open and in front: ring here / fetch the new reminder
+        scheduleAlarms();
+        if (window.HustlSync) window.HustlSync.syncNow();
+        return;
+      }
       if (m.type !== 'alarm' || !m.id) return;
       if (ringing === m.id) closeAlarm();
       if (m.action === 'done') await completeAlarm(m.id);
@@ -909,7 +1034,7 @@
       if (n) toast(`Cleared ${n} finished task${n === 1 ? '' : 's'}. Your streak is untouched.`);
     });
 
-    $$('.radio-key').forEach(b => b.addEventListener('click', () => showScreen(b.dataset.screen)));
+    $$('.radio-key').forEach(b => b.addEventListener('click', () => showScreen(b.dataset.screen, { nav: true })));
     addEventListener('hashchange', () => showScreen(location.hash.slice(1)));
     els.heroStreak.addEventListener('click', () => els.card.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'center' }));
 
@@ -941,6 +1066,7 @@
       alarmHintText: $('#alarmHintText'), alarmAllow: $('#alarmAllow'), alarmDlg: $('#alarmDlg'), alarmKind: $('#alarmDlgKind'),
       alarmDlgText: $('#alarmDlgText'), alarmWhen: $('#alarmDlgWhen'), alarmDone: $('#alarmDone'), alarmSnooze: $('#alarmSnooze'),
       jMonth: $('#jMonth'), jDate: $('#jDate'),
+      phoneCard: $('#phoneCard'), phoneTitle: $('#phoneCardTitle'), phoneText: $('#phoneCardText'), phoneGo: $('#phoneCardGo'), phoneClose: $('#phoneCardClose'),
       left: $('#leftCount'), clear: $('#clearDone'), card: $('#streakCard'), streakNum: $('#streakNum'),
       streakUnit: $('#streakUnit'), streakMsg: $('#streakMsg'), best: $('#bestNum'), heroStreak: $('#heroStreak'), heroStreakText: $('#heroStreakText'),
       statToday: $('#statToday'), statDays: $('#statDays'), statPct: $('#statPct'), vu: $('#vuMeter'),
@@ -968,7 +1094,9 @@
     render();
     scheduleMidnight();
     scheduleAlarms();
+    takeUrlAction();
     setupInstall();
+    setupPhone();
     setupSW();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
@@ -977,7 +1105,7 @@
 
   /* Public API for sync.js / chat.js (and debugging). */
   window.Hustl = {
-    version: APP_VERSION, store, state, toast, render, mergeData, mergeNotes, setNote, togglePriority, mergeAlarms, addAlarm, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
+    version: APP_VERSION, store, state, toast, render, mergeData, mergeNotes, setNote, togglePriority, mergeAlarms, addAlarm, setPushActive, setBadge, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
     streakInfo, currentStreak, bestStreak,
     on: fn => { listeners.add(fn); return () => listeners.delete(fn); },
     ready: new Promise(res => addEventListener('hustl:ready', res, { once: true })),

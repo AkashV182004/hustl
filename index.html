@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Hustl · My To-Do</title>
   <meta name="description" content="Hustl — a cozy, offline-first to-do list with a vinyl daily streak.">
-  <meta name="theme-color" content="#f3e9d2">
+  <meta name="theme-color" content="#3a2414">
+  <meta name="format-detection" content="telephone=no">
   <meta name="color-scheme" content="light dark">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon.png" type="image/png">
@@ -16,7 +17,7 @@
   <meta name="apple-mobile-web-app-title" content="To-Do">
   <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/playfair.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.5.1">
+  <link rel="stylesheet" href="styles.css?v=2.7.0">
   <script>
     // Apply the saved theme before first paint to avoid a flash.
     try { var t = localStorage.getItem('hustl:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
@@ -97,6 +98,19 @@
 
       <!-- ============ TASKS ============ -->
       <section id="screen-tasks" class="screen tasks-screen" aria-label="Tasks">
+        <!-- Phones: install Hustl, then turn on reminder alarms (hidden when there's nothing to do) -->
+        <aside class="phone-card" id="phoneCard" hidden>
+          <svg class="phone-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>
+          <div class="phone-text">
+            <b id="phoneCardTitle"></b>
+            <span id="phoneCardText"></span>
+          </div>
+          <div class="phone-actions">
+            <button class="btn small" type="button" id="phoneCardGo"></button>
+            <button class="icon-plain" type="button" id="phoneCardClose" aria-label="Not now"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>
+          </div>
+        </aside>
+
         <article class="journal" aria-labelledby="journalTitle">
           <div class="j-page">
             <header class="j-head">
@@ -486,11 +500,11 @@
     </div>
   </div>
 
-  <script src="config.js?v=2.5.1"></script>
+  <script src="config.js?v=2.7.0"></script>
   <script src="vendor/supabase.js" defer></script>
-  <script src="app.js?v=2.5.1" defer></script>
-  <script src="sync.js?v=2.5.1" defer></script>
-  <script src="chat.js?v=2.5.1" defer></script>
-  <script src="lock.js?v=2.5.1" defer></script>
+  <script src="app.js?v=2.7.0" defer></script>
+  <script src="sync.js?v=2.7.0" defer></script>
+  <script src="chat.js?v=2.7.0" defer></script>
+  <script src="lock.js?v=2.7.0" defer></script>
 </body>
 </html>

@@ -10,6 +10,18 @@ It installs on desktop and mobile, works fully offline, and syncs between your d
 ## Live app
 **https://akashv182004.github.io/hustl/**
 
+## Made for phones
+Hustl is built to be used as an app on your phone (and works in a computer browser too):
+- Install it to your home screen (steps below); it opens full screen in portrait, works offline, and has
+  long-press shortcuts (**Tasks**, **Set a reminder**, **Chats**).
+- The card at the top of Tasks walks you through installing, then **Turn on reminder alarms**.
+- The phone's **Back** button closes pop-ups and returns to your to-do list instead of leaving the app;
+  the bottom menu steps aside while the keyboard is open; the app icon shows a badge for unread chats and
+  overdue reminders (where the phone supports badges); a light vibration confirms ticks and alarms.
+- **Reminders reach you even when Hustl is closed** (push notifications with Snooze / Done), once the
+  `push` server function is set up (see *Push notifications* below). On iPhone this needs Hustl installed
+  from Safari (Share → Add to Home Screen, iOS 16.4+).
+
 ## Install it
 The app installs like a normal app (its own icon and window) and keeps working offline.
 
@@ -111,6 +123,16 @@ Everything is saved on the device first and synced to your other devices (priori
 `supabase-update.sql` on projects set up before version 2.4; until then they stay on the device).
 Your vinyl streak record, stats and 7-day meter sit below the page.
 
+## Push notifications (alarms when the app is closed)
+- `supabase/functions/push/`: the Edge Function. Every 30 seconds the database (pg_cron + pg_net) asks it to send
+  reminders that just came due; the app also asks it to tell your other devices about a new reminder.
+  Messages are encrypted to each device (Web Push, RFC 8291) and signed with your VAPID key (RFC 8292).
+- Set up once: deploy the function, store its secrets (VAPID private key, contact, schedule password) in Supabase,
+  run `supabase-update.sql`, then run `supabase-push-schedule.sql` with your project ref and schedule password.
+  The VAPID **public** key is in `config.js`; the private key never leaves Supabase.
+- On phones: Android (Chrome) works with Hustl closed; iPhone needs Hustl installed to the Home Screen.
+  On a computer the browser must be running (it can be in the background).
+
 ## How sync works
 - Every change is saved on the device instantly and added to an outbox.
 - The outbox is sent when you come back online, every 60 seconds, when you return to the app, and shortly after each change.
@@ -161,6 +183,8 @@ npm test
 - `tests/chat.mjs`: chat between friends: live delivery, unread badges, read receipts, offline outbox, saved chats, the follow-each-other lock, and photos (webcam, phone camera, shrinking, offline, 7-day clean-up).
 - `tests/journal.mjs`: the Daily Track page: Month/Date, top priorities (max 6), notes and reminders saving and syncing, and an older database without the update.
 - `tests/alarms.mjs`: reminder alarms: setting, ringing, snooze, done, missed reminders, two devices, and an older database.
+- `tests/mobile.mjs`: Hustl on an Android phone and an iPhone: fits the screen, tap sizes, no zoom when typing, install / alarm card, Back button, shortcut.
+- `tests/webpush.mjs`, `tests/pushfn.mjs`, `tests/push.mjs`: push encryption (matches the RFC example), the server function, and real pushes into the service worker with the app closed.
 - `tests/version.mjs`: one version number in every file, so browsers never mix old and new files.
 
 ## Releasing an update

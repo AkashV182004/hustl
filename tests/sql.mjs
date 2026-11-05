@@ -216,6 +216,23 @@ await alarm(U1, AL, 'Rehearsal', '2026-11-07T19:00:00Z', '2026-11-05T11:00:00Z',
 ok(!!(await as(U1, `select done_at from public.alarms where id = '${AL}'`)).rows[0].done_at, 'dismissing a reminder is saved');
 ok(!!(await alarm(U1, '99999999-9999-4999-8999-999999999999', 'x'.repeat(201), '2026-11-07T19:00:00Z', '2026-11-05T10:00:00Z')).error, 'reminder text is limited to 200 characters');
 
+console.log('\n▶ push: devices for notifications');
+const EP = 'https://fcm.googleapis.com/fcm/send/device-1';
+ok(!!(await as(null, `select public.save_push_subscription('${EP}', 'k', 'a', 'UTC', 'x')`)).error, 'signed-out visitors cannot register a device');
+ok(!(await as(U1, `select public.save_push_subscription('${EP}', 'key1', 'auth1', 'Asia/Kolkata', 'Chrome')`)).error, 'a signed-in person can register their device');
+ok(!!(await as(U1, `select * from public.push_subscriptions`)).error, 'nobody can read the device list directly (only the server function)');
+ok((await db.query(`select user_id, tz from public.push_subscriptions where endpoint = $1`, [EP])).rows[0]?.user_id === U1, 'saved for that person, with their time zone');
+ok(!!(await as(U1, `select public.save_push_subscription('http://evil.example/x', 'k', 'a', 'UTC', 'x')`)).error, 'only https push addresses are accepted');
+await as(U2, `select public.save_push_subscription('${EP}', 'key2', 'auth2', 'UTC', 'Chrome')`);
+ok((await db.query(`select user_id from public.push_subscriptions where endpoint = $1`, [EP])).rows[0]?.user_id === U2, 'if someone else signs in on that device, it becomes theirs');
+await as(U1, `select public.remove_push_subscription('${EP}')`);
+ok((await db.query(`select count(*)::int as n from public.push_subscriptions`)).rows[0].n === 1, "you can't remove someone else's device");
+await as(U2, `select public.remove_push_subscription('${EP}')`);
+ok((await db.query(`select count(*)::int as n from public.push_subscriptions`)).rows[0].n === 0, 'you can remove your own (signing out)');
+for (let i = 0; i < 12; i++) await as(U1, `select public.save_push_subscription('https://push.example/${i}', 'k', 'a', 'UTC', 'x')`);
+ok((await db.query(`select count(*)::int as n from public.push_subscriptions where user_id = $1`, [U1])).rows[0].n === 10, 'at most 10 devices per person');
+ok((await db.query(`select column_name from information_schema.columns where table_name = 'alarms' and column_name = 'pushed_at'`)).rows.length === 1, 'alarms remember when they were pushed');
+
 console.log('\n▶ storage (chat-media)');
 const bucket = (await db.query(`select public from storage.buckets where id = 'chat-media'`)).rows[0];
 ok(bucket && bucket.public === false, 'chat-media bucket exists and is private');

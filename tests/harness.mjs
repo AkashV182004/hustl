@@ -37,7 +37,13 @@ export async function device(browser, { name, base, fake, errors, init, ...opts 
   if (init) await ctx.addInitScript(init);   // runs in the page before the app (e.g. a fake Notification)
   await ctx.exposeFunction('__fakeDb', fake.handle);
   await ctx.route('**/vendor/supabase.js', r => r.fulfill({ path: path.join(root, 'tests', 'fake-supabase.js'), contentType: 'text/javascript' }));
-  await ctx.route('**/config.js', r => r.fulfill({ contentType: 'text/javascript',
+  // the "push" Edge Function: record what the app asks it to do
+  await ctx.route('https://example.supabase.co/functions/v1/push', async r => {
+    if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });
+    (fake.pushCalls ||= []).push({ device: name, auth: r.request().headers().authorization, body: JSON.parse(r.request().postData() || '{}') });
+    return r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"sent":0}' });
+  });
+  await ctx.route('**/config.js*', r => r.fulfill({ contentType: 'text/javascript',
     body: "window.HUSTL_CONFIG = { SUPABASE_URL: 'https://example.supabase.co', SUPABASE_ANON_KEY: 'public-anon-key' };" }));
   const page = await ctx.newPage();
   fake.subscribe(ev => page.evaluate(e => window.__fakeRealtime && window.__fakeRealtime(e), ev).catch(() => {}));

@@ -185,6 +185,8 @@
       lastSync = new Date().toISOString();
       await H.store.set('lastSync', lastSync);
       lastError = null;
+      await announceAdded();
+      ensurePush();
     } catch (e) {
       lastError = e;
       console.warn('Hustl sync paused:', e && (e.message || e));
@@ -272,8 +274,74 @@
     if (live) { live.forEach(ch => sb.removeChannel(ch)); live = null; }
   }
 
+  /* ---------------- Push: reminder alarms even when Hustl is closed ---------------- */
+  // With notifications allowed, each signed-in device registers its push address (save_push_subscription);
+  // the "push" Edge Function then sends due reminders to it. Signing out removes this device again.
+  let pushEndpoint = null, noPush = false, pushBusy = false;
+  const keyBytes = k => Uint8Array.from(atob(k.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((k.length + 3) % 4)), c => c.charCodeAt(0));
+  const sameKey = (buf, k) => { try { const a = new Uint8Array(buf), b = keyBytes(k); return a.length === b.length && a.every((x, i) => x === b[i]); } catch { return false; } };
+  const canPush = () => !!(cfg.VAPID_PUBLIC_KEY && 'PushManager' in window && navigator.serviceWorker && window.Notification && Notification.permission === 'granted');
+  const swReg = () => Promise.race([navigator.serviceWorker.ready, new Promise(res => setTimeout(() => res(null), 4000))]);
+
+  async function ensurePush() {
+    if (pushBusy || noPush || !sb || !session || !navigator.onLine || !canPush()) return;
+    pushBusy = true;
+    try {
+      const reg = await swReg();
+      if (!reg || !reg.pushManager) return;
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && sub.options && sub.options.applicationServerKey && !sameKey(sub.options.applicationServerKey, cfg.VAPID_PUBLIC_KEY)) { await sub.unsubscribe(); sub = null; }
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(cfg.VAPID_PUBLIC_KEY) });
+      const j = sub.toJSON();
+      const { error } = await sb.rpc('save_push_subscription', {
+        p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth,
+        p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', p_user_agent: navigator.userAgent.slice(0, 200),
+      });
+      if (error) { if (error.code === 'PGRST202' || /could not find the function/i.test(error.message || '')) noPush = true; else console.warn('Hustl push not saved:', error.message || error); return; }
+      pushEndpoint = j.endpoint;
+      H.setPushActive(true);
+    } catch (e) {
+      console.warn('Hustl push setup skipped:', e && (e.message || e));
+    } finally { pushBusy = false; }
+  }
+
+  async function dropPush() {
+    try {
+      const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();   // instant: never hold up signing out
+      const sub = reg && reg.pushManager && await reg.pushManager.getSubscription();
+      if (sub) {
+        if (sb && session) await sb.rpc('remove_push_subscription', { p_endpoint: sub.endpoint });
+        await sub.unsubscribe();
+      }
+    } catch {}
+    pushEndpoint = null;
+    H.setPushActive(false);
+  }
+
+  // Reminders added on this device: ask the server to tell your other devices (even closed ones).
+  async function announceAdded() {
+    const list = H.state.alarms.filter(a => a.announce);
+    if (!list.length || !session) return;
+    for (const a of list) {
+      if (!noPush) {
+        try {
+          const res = await fetch(cfg.SUPABASE_URL + '/functions/v1/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: cfg.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + session.access_token },
+            body: JSON.stringify({ type: 'added', alarm_id: a.id, endpoint: pushEndpoint }),
+          });
+          if (res.status >= 500 || res.status === 401) continue;   // try again on the next sync
+        } catch { break; }                                          // offline: try again later
+      }
+      delete a.announce;
+    }
+    await H.store.set('alarms', H.state.alarms);
+  }
+  addEventListener('hustl:notify-allowed', () => ensurePush());
+
   async function signOut() {
     stopLive();
+    await dropPush();
     await sb.auth.signOut({ scope: 'local' }).catch(() => {});
     session = null; lastError = null;
     renderAccount(); updateAir();
