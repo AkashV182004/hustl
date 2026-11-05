@@ -137,7 +137,9 @@ export async function handle(req, ctx) {
     }
     if (res.ok) break;
     detail = await res.text().catch(() => '');
-    const overloaded = res.status === 503 || res.status === 500 || (res.status === 429 && !/quota|billing/i.test(detail));
+    const quota = res.status === 429 && /quota|billing/i.test(detail);
+    const overloaded = res.status === 503 || res.status === 500 || (res.status === 429 && !quota);
+    if (quota) { hung = true; continue; }   // quotas are per model: skip the retry, try the fallback model
     if (!overloaded) break;   // other errors won't get better by retrying
   }
   if (!res) return json({ error: 'upstream', reason: detail.slice(0, 200), message: 'Hustl AI is busy right now. Try again in a minute.' }, 502);
