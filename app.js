@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '2.8.0';
+  const APP_VERSION = '2.8.1';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -812,7 +812,7 @@
   }
   function setupInstall() {
     addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; updateInstallUI(); });
-    addEventListener('appinstalled', () => { deferredPrompt = null; updateInstallUI(); toast('Installed. Find "To-Do" with your apps 🎧'); });
+    addEventListener('appinstalled', () => { deferredPrompt = null; updateInstallUI(); toast('Installed. Find "Hustl" with your apps 🎧'); });
     els.install.addEventListener('click', promptInstall);
     els.install2.addEventListener('click', promptInstall);
     updateInstallUI();
@@ -835,7 +835,7 @@
     if (perm === 'default') return { key: 'notify', title: 'Turn on reminder alarms', go: 'Turn on',
       text: 'Allow notifications so your reminders ring even when Hustl is closed.' };
     if (perm === 'denied') return { key: 'denied', title: 'Reminder alarms are blocked', go: 'OK',
-      text: isPhone() ? 'Turn on notifications for Hustl (To-Do) in your phone’s Settings → Apps → Notifications.' : 'Allow notifications for this site in your browser’s settings.' };
+      text: isPhone() ? 'Turn on notifications for Hustl in your phone’s Settings → Apps → Notifications.' : 'Allow notifications for this site in your browser’s settings.' };
     return null;
   }
   function renderPhoneCard() {

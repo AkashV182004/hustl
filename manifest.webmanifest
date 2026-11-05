@@ -1,7 +1,7 @@
 {
-  "name": "My To-Do",
-  "short_name": "To-Do",
-  "description": "Hustl — a cozy, offline-first to-do list with a vinyl daily streak.",
+  "name": "Hustl",
+  "short_name": "Hustl",
+  "description": "Hustl — your daily track: tasks, top priorities, reminders with alarms, a vinyl streak, and chat with friends.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
