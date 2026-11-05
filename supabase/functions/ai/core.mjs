@@ -8,7 +8,7 @@
 // actions out on the device (so they work with its offline storage and sync) and shows each one as a card.
 // History is sent back as plain text, so no function-call state has to survive between turns.
 //
-// ctx = { env: { GEMINI_API_KEY, GEMINI_MODEL, GEMINI_FALLBACK_MODEL, DAILY_LIMIT }, fetch, sleep(ms), userFromToken(jwt), takeMessage(userId, limit) → count | null }
+// ctx = { env: { GEMINI_API_KEY, GEMINI_MODELS, DAILY_LIMIT }, fetch, sleep(ms), now(), userFromToken(jwt), takeMessage(userId, limit) → count | null }
 
 export const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -17,8 +17,23 @@ export const CORS = {
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
-export const DEFAULT_MODEL = 'gemini-3.8-flash';
-export const FALLBACK_MODEL = 'gemini-3.6-flash';   // Google's stable Flash, used when the main model is overloaded
+// Tried in this order. Each Gemini model has its own free allowance, so when one is used up (or busy),
+// the next one answers. All support function calling (checked on Google's model pages).
+export const MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+export const DEFAULT_MODEL = MODELS[0];
+export const FALLBACK_MODEL = MODELS[1];
+
+// Models to skip for a while, remembered between requests while the server stays warm (best effort):
+// used-up daily allowance → until Google's reset (midnight US Pacific); busy / no answer → one minute.
+const resting = new Map();
+export function nextPacificMidnight(now = Date.now()) {
+  const d = new Date(now);
+  const pt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .formatToParts(d).reduce((o, p) => (o[p.type] = p.value, o), {});
+  const secsIntoDay = (Number(pt.hour) % 24) * 3600 + Number(pt.minute) * 60 + Number(pt.second);
+  return now + (86400 - secsIntoDay) * 1000 + 60 * 1000;   // a minute after, to be safe
+}
+export const _resting = resting;   // for tests
 const MAX_TURNS = 20, MAX_TEXT = 2000, MAX_ITEMS = 120;
 
 // What Hustl AI can do. The app checks every request again before acting on it.
@@ -111,45 +126,69 @@ export async function handle(req, ctx) {
   const count = await ctx.takeMessage(user.id, limit);
   if (count === null) return json({ error: 'limit', message: `That’s today’s ${limit} Hustl AI messages. More tomorrow!` }, 429);
 
-  // The main model, once more after a short pause if it is overloaded, then the fallback model.
-  const main = ctx.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const fallback = ctx.env.GEMINI_FALLBACK_MODEL === 'none' ? null : (ctx.env.GEMINI_FALLBACK_MODEL || FALLBACK_MODEL);
-  // Each attempt has a time limit, so a phone never waits minutes: a model that hangs is skipped.
-  const attempts = [{ model: main, ms: 10000 }, { model: main, ms: 10000, onlyIfQuick: true },
-    ...(fallback && fallback !== main ? [{ model: fallback, ms: 20000 }] : [])];
+  // Walk the model list. Every call has a time limit, and the whole walk stays under ~50 s so a phone never
+  // waits minutes. Used-up models are remembered and skipped until Google resets them.
+  const list = String(ctx.env.GEMINI_MODELS || '').split(',').map(m => m.trim()).filter(Boolean);
+  const models = list.length ? list : MODELS;
+  const clock = ctx.now || Date.now;
+  const started = clock();
   const ask = (model, ms, body) => ctx.fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': ctx.env.GEMINI_API_KEY },
     body: JSON.stringify(body),
     signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined,
   });
-  let res = null, detail = '', used = main, hung = false;
-  for (let i = 0; i < attempts.length; i++) {
-    const a = attempts[i];
-    if (a.onlyIfQuick && hung) continue;           // the main model hung: go straight to the fallback
-    if (i === 1) await (ctx.sleep || (ms => new Promise(r => setTimeout(r, ms))))(1200);
-    used = a.model;
-    try {
-      res = await ask(a.model, a.ms, req_);
-    } catch (e) {
-      res = null; hung = true; detail = String(e && e.message || e);
-      continue;
+  const fresh = models.filter(m => !(resting.get(m) > clock()));
+  const order = fresh.length ? fresh : models;   // everything resting: try them all anyway (the reset may have come)
+  let res = null, detail = '', used = order[0], payload = req_, allQuota = true, lastStatus = 0;
+  for (let i = 0; i < order.length; i++) {
+    const model = order[i];
+    for (let tries = 0; tries < 2; tries++) {
+      const left = 50000 - (clock() - started);
+      if (left < 4000) break;
+      used = model;
+      try {
+        res = await ask(model, Math.min(i === 0 ? 10000 : 14000, left), payload);
+      } catch (e) {
+        res = null; allQuota = false; detail = String(e && e.message || e);
+        resting.set(model, clock() + 60 * 1000);            // no answer in time: give it a minute
+        break;
+      }
+      if (res.ok) break;
+      lastStatus = res.status;
+      detail = await res.text().catch(() => '');
+      const quota = res.status === 429 && /quota|billing/i.test(detail);
+      if (quota) { resting.set(model, nextPacificMidnight(clock())); break; }   // used up until Google's reset
+      allQuota = false;
+      if (res.status === 400 && /thinking/i.test(detail) && payload.generationConfig.thinkingConfig) {
+        payload = { ...payload, generationConfig: { maxOutputTokens: payload.generationConfig.maxOutputTokens } };   // this model won't take the thinking setting
+        continue;
+      }
+      if (res.status === 401 || res.status === 403) break;  // the key itself is the problem
+      if ((res.status === 503 || res.status === 500 || res.status === 429) && tries === 0 && i === 0) {
+        await (ctx.sleep || (ms => new Promise(r => setTimeout(r, ms))))(1200);   // the first model: one quick second try
+        continue;
+      }
+      if (res.status === 503 || res.status === 500 || res.status === 429) resting.set(model, clock() + 60 * 1000);
+      break;
     }
-    if (res.ok) break;
-    detail = await res.text().catch(() => '');
-    const quota = res.status === 429 && /quota|billing/i.test(detail);
-    const overloaded = res.status === 503 || res.status === 500 || (res.status === 429 && !quota);
-    if (quota) { hung = true; continue; }   // quotas are per model: skip the retry, try the fallback model
-    if (!overloaded) break;   // other errors won't get better by retrying
+    if (res && res.ok) break;
+    if (res && (res.status === 401 || res.status === 403)) break;
+    payload = req_;
   }
+  if (res && res.ok) resting.delete(used);
   if (!res) return json({ error: 'upstream', reason: detail.slice(0, 200), message: 'Hustl AI is busy right now. Try again in a minute.' }, 502);
+  if (res.status === 401 || res.status === 403) {
+    console.error('gemini key rejected', res.status, detail.slice(0, 300));
+    return json({ error: 'upstream', reason: `${res.status}`, message: 'Hustl AI isn’t set up correctly (the Gemini key was refused).' }, 502);
+  }
   if (!res.ok) {
     console.error('gemini error', res.status, detail.slice(0, 500));
     // Google's own short reason (status + message; never includes the key) helps tell "over quota" from "busy"
     let reason = '';
     try { const e = JSON.parse(detail).error || {}; reason = `${res.status} ${e.status || ''}: ${String(e.message || '').slice(0, 300)}`; } catch { reason = String(res.status); }
-    const quota = res.status === 429 && /quota|billing|limit/i.test(detail);
-    const busy = res.status === 429 || res.status === 503;
+    const quota = allQuota && res.status === 429;
+    const busy = res.status === 429 || res.status === 503 || res.status === 500;
     return json({ error: 'upstream', reason,
       message: quota ? 'Hustl AI has reached its Google usage limit. Please try again later.'
         : busy ? 'Hustl AI is busy right now. Try again in a minute.' : 'Hustl AI had a problem answering. Please try again.' }, 502);
@@ -162,7 +201,7 @@ export async function handle(req, ctx) {
       const content = first.candidates[0].content;   // sent back unchanged (it carries the model's thought signatures)
       const replies = (content.parts || []).filter(p => p.functionCall).map(p => ({
         functionResponse: { name: p.functionCall.name, ...(p.functionCall.id ? { id: p.functionCall.id } : {}), response: { result: 'done' } } }));
-      const again = await ask(used, 12000, { ...req_, contents: [...req_.contents, content, { role: 'user', parts: replies }],
+      const again = await ask(used, 12000, { ...payload, contents: [...payload.contents, content, { role: 'user', parts: replies }],
         toolConfig: { functionCallingConfig: { mode: 'NONE' } } });
       if (again.ok) out.text = readResponse(await again.json()).text;
     } catch (e) { console.error('follow-up failed', e && e.message); }

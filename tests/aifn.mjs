@@ -1,6 +1,6 @@
 // The "ai" server function's logic (supabase/functions/ai/core.mjs) with a stand-in Gemini.
 // Run: node tests/aifn.mjs
-import { handle, buildRequest, readResponse, TOOLS, DEFAULT_MODEL, FALLBACK_MODEL } from '../supabase/functions/ai/core.mjs';
+import { handle, buildRequest, readResponse, TOOLS, DEFAULT_MODEL, FALLBACK_MODEL, MODELS, _resting, nextPacificMidnight } from '../supabase/functions/ai/core.mjs';
 
 let failures = 0;
 const ok = (c, m) => { console.log(`${c ? '  ✓' : '  ✗'} ${m}`); if (!c) failures++; };
@@ -41,6 +41,7 @@ const ctx = (over = {}) => ({
   env: { GEMINI_API_KEY: 'test-key', DAILY_LIMIT: '3', ...(over.env || {}) },
   fetch: async (url, init) => { calls.push({ url, init }); return over.gemini ? over.gemini(url) : { ok: true, json: async () => resp }; },
   sleep: async () => {},
+  now: over.now,
   userFromToken: async t => (t === 'good' ? { id: 'u1' } : null),
   takeMessage: async (u, limit) => { counts[u] = (counts[u] || 0) + 1; return counts[u] > limit ? null : counts[u]; },
 });
@@ -60,41 +61,86 @@ res = await post(ask, { authorization: 'Bearer good' });
 data = await res.json();
 ok(res.status === 429 && data.message.includes('3 Hustl AI messages'), 'over the daily limit → friendly "more tomorrow"');
 
-counts = {};
 const overloaded = { ok: false, status: 503, text: async () => JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand.' } }) };
-calls = []; counts = {};
-res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => (url.includes(DEFAULT_MODEL) ? overloaded : { ok: true, json: async () => resp }) }));
+const used_up = { ok: false, status: 429, text: async () => '{"error":{"status":"RESOURCE_EXHAUSTED","message":"You exceeded your current quota"}}' };
+const good = { ok: true, json: async () => resp };
+const reset = () => { calls = []; counts = {}; _resting.clear(); };
+const modelOf = c => MODELS.find(m => c.url.includes(`/models/${m}:`));
+
+reset();
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => (url.includes(DEFAULT_MODEL) ? overloaded : good) }));
 data = await res.json();
 ok(res.status === 200 && data.text.includes('6 pm'), `main model overloaded → tries again, then answers with ${FALLBACK_MODEL}`);
-ok(calls.length === 3 && calls[0].url.includes(DEFAULT_MODEL) && calls[1].url.includes(DEFAULT_MODEL) && calls[2].url.includes(FALLBACK_MODEL), 'order: main, main again, fallback');
-calls = []; counts = {};
+ok(calls.map(modelOf).join() === [DEFAULT_MODEL, DEFAULT_MODEL, FALLBACK_MODEL].join(), 'order: main, main again, next model');
+
+reset();
 res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => overloaded }));
 data = await res.json();
 ok(res.status === 502 && data.message.includes('busy') && data.reason.startsWith('503 UNAVAILABLE'), 'all overloaded → "busy, try again in a minute" (with Google’s reason)');
+ok(calls.length === MODELS.length + 1, 'tries every model once (the main one twice), no endless retrying');
+
+console.log('\n▶ free allowance used up → the next model');
+ok(MODELS.join(' → ') === 'gemini-3.8-flash → gemini-3.6-flash → gemini-3.5-flash-lite → gemini-3.1-flash-lite', 'chain: 3.8 Flash → 3.6 Flash → 3.5 Flash-Lite → 3.1 Flash-Lite');
+const lastOnly = url => (url.includes('gemini-3.1-flash-lite') ? good : used_up);
+reset();
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: lastOnly }));
+data = await res.json();
+ok(res.status === 200 && data.model === 'gemini-3.1-flash-lite', 'three used up → the fourth answers');
+ok(calls.map(modelOf).join() === MODELS.join(), 'walks them in order, one call each (no retry on a used-up model)');
 calls = []; counts = {};
-res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: false, status: 429, text: async () => '{"error":{"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}' }) }));
-ok(res.status === 502 && (await res.json()).message.includes('usage limit') && calls.length === 2 && calls[1].url.includes(FALLBACK_MODEL), 'over Google quota → tries the fallback model (its own quota), then says so');
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: lastOnly }));
+ok(res.status === 200 && calls.length === 1 && modelOf(calls[0]) === 'gemini-3.1-flash-lite', 'the next message goes straight to the model that still has allowance');
+
+reset();
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => used_up }));
+ok(res.status === 502 && (await res.json()).message.includes('usage limit') && calls.length === MODELS.length, 'all used up → tries each once, then says the usage limit is reached');
 calls = []; counts = {};
-res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => (url.includes(DEFAULT_MODEL) ? { ok: false, status: 429, text: async () => '{"error":{"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}' } : { ok: true, json: async () => resp }) }));
-ok(res.status === 200, 'main model out of quota but the fallback has some → you still get an answer');
-calls = []; counts = {};
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => good }));
+ok(res.status === 200 && calls.length === 1 && modelOf(calls[0]) === DEFAULT_MODEL, 'everything resting → still tries again from the top (Google may have reset)');
+
+reset();
+let fakeNow = Date.parse('2026-11-06T12:00:00Z');
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ now: () => fakeNow, gemini: url => (url.includes(DEFAULT_MODEL) ? used_up : good) }));
+ok(res.status === 200 && _resting.get(DEFAULT_MODEL) === nextPacificMidnight(fakeNow), 'a used-up model rests until Google’s reset (midnight US Pacific)');
+ok(nextPacificMidnight(Date.parse('2026-11-06T12:00:00Z')) === Date.parse('2026-11-07T08:01:00Z'), 'reset time: 12:00 UTC → next 00:00 Pacific (08:00 UTC) + 1 minute');
+fakeNow = _resting.get(DEFAULT_MODEL) + 1; calls = []; counts = {};
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ now: () => fakeNow, gemini: () => good }));
+ok(res.status === 200 && modelOf(calls[0]) === DEFAULT_MODEL, 'after the reset the main model is used again');
+
+reset();
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ env: { GEMINI_MODELS: 'gemini-x, gemini-y' }, gemini: url => (url.includes('gemini-x') ? used_up : good) }));
+ok(res.status === 200 && calls.map(c => c.url.split('/models/')[1].split(':')[0]).join() === 'gemini-x,gemini-y', 'the order can be changed with the GEMINI_MODELS secret');
+
+console.log('\n▶ other errors');
+reset();
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => (calls.length === 1 ? { ok: false, status: 400, text: async () => '{"error":{"message":"Thinking level is not supported for this model."}}' } : good) }));
+const first = JSON.parse(calls[0].init.body), second = JSON.parse(calls[1].init.body);
+ok(res.status === 200 && modelOf(calls[1]) === DEFAULT_MODEL && first.generationConfig.thinkingConfig && !second.generationConfig.thinkingConfig, 'a model that refuses the thinking setting is asked again without it');
+reset();
 res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: false, status: 400, text: async () => '{"error":{"status":"INVALID_ARGUMENT","message":"bad"}}' }) }));
-ok(res.status === 502 && calls.length === 1, 'other errors are not retried');
-counts = {};
+ok(res.status === 502 && calls.length === MODELS.length, 'other errors: no retry on the same model, the next model is tried');
+reset();
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: false, status: 403, text: async () => '{"error":{"status":"PERMISSION_DENIED","message":"API key not valid"}}' }) }));
+ok(res.status === 502 && (await res.json()).message.includes('key was refused') && calls.length === 1, 'key refused → says so at once (no point trying other models)');
+reset();
 res = await post(ask, { authorization: 'Bearer good' }, ctx({ env: { GEMINI_API_KEY: '' } }));
 ok(res.status === 503 && (await res.json()).error === 'not_configured', 'no Gemini key set → "isn’t set up yet"');
 res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: true, json: async () => ({ promptFeedback: { blockReason: 'SAFETY' }, candidates: [] }) }) }));
 ok((await res.json()).text.includes('can’t help with that'), 'a blocked answer → a polite message, not an empty bubble');
 ok((await handle(new Request('https://fn.example/ai', { method: 'OPTIONS' }), ctx())).headers.get('Access-Control-Allow-Origin') === '*', 'answers the browser pre-flight (CORS)');
 
-counts = {}; calls = [];
-res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => { if (url.includes(DEFAULT_MODEL)) throw new Error('The operation timed out'); return { ok: true, json: async () => resp }; } }));
+reset();
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => { if (url.includes(DEFAULT_MODEL)) throw new Error('The operation timed out'); return good; } }));
 data = await res.json();
-ok(res.status === 200 && calls.length === 2 && calls[1].url.includes(FALLBACK_MODEL), 'main model hangs (time limit) → straight to the fallback, no second wait');
+ok(res.status === 200 && calls.length === 2 && modelOf(calls[1]) === FALLBACK_MODEL, 'main model hangs (time limit) → straight to the next model, no second wait');
 ok(calls.every(c => c.init.signal || typeof AbortSignal === 'undefined'), 'every call to Google has a time limit');
+reset();
+fakeNow = 0;
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ now: () => fakeNow, gemini: () => { fakeNow += 20000; return overloaded; } }));
+ok(res.status === 502 && calls.length <= 3, 'the whole walk stays under ~50 seconds');
 
 console.log('\n▶ actions without words');
-counts = {}; calls = [];
+reset();
 const actionsOnly = { candidates: [{ content: { role: 'model', parts: [
   { functionCall: { name: 'add_task', args: { text: 'Buy bread' }, id: 'c1' }, thoughtSignature: 'sig-1' } ] } }] };
 const words = { candidates: [{ content: { role: 'model', parts: [{ text: 'Added bread. Left today: pay the electricity bill.' }] } }] };

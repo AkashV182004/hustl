@@ -131,11 +131,15 @@ An assistant powered by **Google Gemini** (`gemini-3.8-flash`). It sees your tas
 daily tasks and top priorities, tick things off, and set or remove reminders with alarms; every change shows as a card.
 - `supabase/functions/ai/`: the Edge Function. It checks you're signed in, counts the message (**1000 per person
   per day**, `ai_take_message` in `supabase.sql`), and asks Gemini. The app carries out the actions on the device.
+- **Model chain:** `gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`. Each model
+  has its own free allowance, so when one is used up (or busy) the next answers. A used-up model is skipped until
+  Google resets it (midnight US Pacific, about 1:30 pm IST). Change the order with the `GEMINI_MODELS` secret
+  (comma-separated).
 - Set up once: create a key at **https://aistudio.google.com/apikey** (with billing enabled; on the free tier Google
   may use what you send to improve its products), then
   `npx supabase secrets set GEMINI_API_KEY=your-key --remote=<project-ref>` and deploy with
   `npx supabase functions deploy ai --remote=<project-ref> --no-verify-jwt --use-api`.
-  Optional secrets: `GEMINI_MODEL`, `AI_DAILY_LIMIT`.
+  Optional secrets: `GEMINI_MODELS`, `AI_DAILY_LIMIT`.
 - Your messages and lists are sent to Google to answer. Needs a connection and a signed-in account.
 
 ## Push notifications (alarms when the app is closed)
