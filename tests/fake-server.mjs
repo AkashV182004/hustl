@@ -11,7 +11,7 @@ const WEEK = 7 * 24 * 60 * 60 * 1000;
 const pg = v => (v ? new Date(v).toISOString().replace('Z', '+00:00') : v); // Postgres-style timestamps
 
 export function createFakeServer() {
-  const db = { users: new Map(), profiles: new Map(), tasks: new Map(), log: new Map(), notes: new Map(), follows: [], messages: [], files: new Map() };
+  const db = { users: new Map(), profiles: new Map(), tasks: new Map(), log: new Map(), notes: new Map(), alarms: new Map(), follows: [], messages: [], files: new Map() };
   const subscribers = new Set();
   const emit = (table, eventType, row) => subscribers.forEach(fn => fn({ table, eventType, new: { ...row } }));
   let clock = 0;
@@ -130,6 +130,22 @@ export function createFakeServer() {
           if (ex && new Date(r.updated_at) < new Date(ex.updated_at)) continue;   // last write wins
           db.notes.set(k, { user_id: uid, kind: r.kind, body: r.body, updated_at: r.updated_at });
           emit('notes', 'UPDATE', db.notes.get(k));
+        }
+        return { data: null };
+      }
+    }
+    // Reminder alarms (supabase.sql "alarms" table)
+    if (table === 'alarms') {
+      if (api.oldSchema) return { error: { code: 'PGRST205', message: "Could not find the table 'public.alarms' in the schema cache" } };
+      if (p.op === 'select') return { data: [...db.alarms.values()].filter(r => r.user_id === uid).map(r => ({ ...r, due_at: pg(r.due_at), done_at: pg(r.done_at), updated_at: pg(r.updated_at) })) };
+      if (p.op === 'upsert') {
+        for (const r of p.rows) {
+          const ex = db.alarms.get(r.id);
+          if (r.user_id !== uid || (ex && ex.user_id !== uid)) return rls;
+          if (!r.text || r.text.length > 200) return { error: { code: '23514', message: 'check constraint' } };
+          if (ex && new Date(r.updated_at) < new Date(ex.updated_at)) continue;   // last write wins
+          db.alarms.set(r.id, { ...r });
+          emit('alarms', 'UPDATE', db.alarms.get(r.id));
         }
         return { data: null };
       }

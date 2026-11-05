@@ -27,9 +27,9 @@
   let debounce = null;
   // Set when the database doesn't have the Daily Track additions yet (supabase-update.sql not run):
   // priorities and notes then stay on this device, and everything else keeps syncing.
-  let noPriorityColumn = false, noNotesTable = false;
+  let noPriorityColumn = false, noNotesTable = false, noAlarmsTable = false;
   const missingColumn = e => e && (e.code === '42703' || e.code === 'PGRST204' || /priority/.test(e.message || ''));
-  const missingTable = e => e && (e.code === '42P01' || e.code === 'PGRST205' || /notes/.test(e.message || '') && /not find|does not exist/.test(e.message || ''));
+  const missingTable = e => e && (e.code === '42P01' || e.code === 'PGRST205' || /not find the table|does not exist/.test(e.message || ''));
   let live = null;          // Realtime channels (one per table): tell this device the moment another device saves
   const outbox = new Set(); // ids of tasks changed locally and not yet pushed
 
@@ -164,6 +164,23 @@
         }
       }
 
+      // 5) Reminder alarms: newer side wins per alarm, both ways.
+      if (!noAlarmsTable) {
+        const { data: aRows, error: aErr } = await sb.from('alarms').select('id,text,due_at,done_at,deleted,updated_at');
+        if (aErr && missingTable(aErr)) noAlarmsTable = true;
+        else if (aErr) throw aErr;
+        else {
+          await H.mergeAlarms(aRows);
+          const remote = Object.fromEntries(aRows.map(r => [r.id, iso(r.updated_at)]));
+          const up = H.state.alarms.filter(a => !remote[a.id] || a.updated_at > remote[a.id])
+            .map(a => ({ id: a.id, user_id: uid, text: a.text, due_at: a.due_at, done_at: a.done_at, deleted: !!a.deleted, updated_at: a.updated_at }));
+          if (up.length) {
+            const { error } = await sb.from('alarms').upsert(up, { onConflict: 'id' });
+            if (error) throw error;
+          }
+        }
+      }
+
       if (cursor) await H.store.set(cursorKey, cursor);
       lastSync = new Date().toISOString();
       await H.store.set('lastSync', lastSync);
@@ -242,10 +259,11 @@
     };
     const onLog = ({ new: r }) => { if (!r || (H.state.log[r.day] || 0) < r.count) schedule(150); };
     const onNote = ({ new: r }) => { const n = r && H.state.notes[r.kind]; if (!n || iso(r.updated_at) !== n.updated_at) schedule(150); };
+    const onAlarm = ({ new: r }) => { const a = r && H.state.alarms.find(x => x.id === r.id); if (!a || iso(r.updated_at) !== a.updated_at) schedule(150); };
     // One channel per table: if a table isn't set up for live updates yet, Supabase refuses that channel
     // only, and the others keep working (the 60-second refresh covers the rest).
     const caughtUp = status => { if (status === 'SUBSCRIBED' && (!lastSync || Date.now() - Date.parse(lastSync) > 5000)) schedule(150); };
-    live = [['tasks', onTask], ['completion_log', onLog], ['notes', onNote]].map(([table, fn]) =>
+    live = [['tasks', onTask], ['completion_log', onLog], ['notes', onNote], ['alarms', onAlarm]].map(([table, fn]) =>
       sb.channel(`hustl-${table}-${session.user.id}`)
         .on('postgres_changes', { event: '*', schema: 'public', table, filter }, fn)
         .subscribe(caughtUp));
@@ -284,7 +302,7 @@
     // Queue every local change.
     H.on((type, detail) => {
       if (type === 'tasks') { detail.forEach(t => outbox.add(t.id)); saveOutbox(); updateAir(); schedule(); }
-      else if (type === 'log' || type === 'notes') schedule();
+      else if (type === 'log' || type === 'notes' || type === 'alarms') schedule();
     });
 
     if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) {

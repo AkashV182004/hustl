@@ -202,6 +202,20 @@ ok((await as(U1, `select body from public.notes where kind = 'notes'`)).rows[0].
 ok(!!(await note(U1, 'shopping', 'x', '2026-11-05T11:00:00Z')).error, 'only "notes" and "reminders" are allowed');
 ok(!!(await note(U1, 'notes', 'x'.repeat(5001), '2026-11-05T11:00:00Z')).error, 'notes are limited to 5000 characters');
 
+console.log('\n▶ reminder alarms');
+const AL = '88888888-8888-4888-8888-888888888888';
+const alarm = (uid, id, text, due, at, extra = '') => as(uid, `insert into public.alarms (id, user_id, text, due_at, updated_at${extra ? ', done_at' : ''})
+  values ($1, $2, $3, $4, $5${extra ? ', $6' : ''}) on conflict (id) do update set text = excluded.text, due_at = excluded.due_at, updated_at = excluded.updated_at${extra ? ', done_at = excluded.done_at' : ''}`,
+  extra ? [id, uid, text, due, at, extra] : [id, uid, text, due, at]);
+ok(!(await alarm(U1, AL, 'Rehearsal', '2026-11-07T19:00:00Z', '2026-11-05T10:00:00Z')).error, 'you can set a reminder with a date and time');
+ok((await as(U2, `select * from public.alarms`)).rows.length === 0, "nobody else can see your reminders");
+ok(!!(await as(U2, `insert into public.alarms (id, user_id, text, due_at, updated_at) values (gen_random_uuid(), '${U1}', 'x', now(), now())`)).error, "you can't set reminders for someone else");
+await alarm(U1, AL, 'Rehearsal (old)', '2026-11-07T18:00:00Z', '2026-11-05T09:00:00Z');
+ok((await as(U1, `select text from public.alarms where id = '${AL}'`)).rows[0].text === 'Rehearsal', 'an older edit arriving late does not overwrite a newer one');
+await alarm(U1, AL, 'Rehearsal', '2026-11-07T19:00:00Z', '2026-11-05T11:00:00Z', '2026-11-07T19:01:00Z');
+ok(!!(await as(U1, `select done_at from public.alarms where id = '${AL}'`)).rows[0].done_at, 'dismissing a reminder is saved');
+ok(!!(await alarm(U1, '99999999-9999-4999-8999-999999999999', 'x'.repeat(201), '2026-11-07T19:00:00Z', '2026-11-05T10:00:00Z')).error, 'reminder text is limited to 200 characters');
+
 console.log('\n▶ storage (chat-media)');
 const bucket = (await db.query(`select public from storage.buckets where id = 'chat-media'`)).rows[0];
 ok(bucket && bucket.public === false, 'chat-media bucket exists and is private');
@@ -222,7 +236,7 @@ await as(U2, `delete from public.follows where follower_id = '${U2}' and followe
 ok((await as(U1, `delete from storage.objects where name = '${U1}/${U2}/a.jpg'`)).affected === 1, 'you can delete your own photo, even after an unfollow');
 
 const pub = (await db.query(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`)).rows.map(r => r.tablename);
-ok(['completion_log', 'messages', 'notes', 'tasks'].every(t => pub.includes(t)), 'tasks, streak log, notes and messages send live updates');
+ok(['alarms', 'completion_log', 'messages', 'notes', 'tasks'].every(t => pub.includes(t)), 'tasks, streak log, notes, alarms and messages send live updates');
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

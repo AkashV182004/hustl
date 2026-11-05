@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-title" content="To-Do">
   <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/playfair.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.4.1">
+  <link rel="stylesheet" href="styles.css?v=2.5.0">
   <script>
     // Apply the saved theme before first paint to avoid a flash.
     try { var t = localStorage.getItem('hustl:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
@@ -157,7 +157,18 @@
 
                 <section class="j-panel j-remind" aria-labelledby="remindLabel">
                   <h3 class="j-plate plain" id="remindLabel">Important Reminders <svg class="j-ico bell" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a5.5 5.5 0 0 0-5.5 5.5v4L4.5 16.5h15L17.5 13V9A5.5 5.5 0 0 0 12 3.5z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg></h3>
-                  <textarea id="remindText" class="j-text" maxlength="5000" aria-labelledby="remindLabel" placeholder="Things you mustn’t forget…"></textarea>
+                  <ul class="alarm-list" id="alarmList" aria-label="Reminders with an alarm"></ul>
+                  <form class="alarm-add" id="alarmForm" autocomplete="off" novalidate>
+                    <label for="alarmText" class="sr-only">Remind me to</label>
+                    <input id="alarmText" class="j-input" type="text" maxlength="200" placeholder="Remind me to…" enterkeyhint="next">
+                    <div class="alarm-when">
+                      <label for="alarmAt" class="sr-only">Date and time</label>
+                      <input id="alarmAt" class="alarm-at" type="datetime-local" step="60">
+                      <button class="btn small alarm-set" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2.5 1.6M5 4.5L2.8 6.7M19 4.5l2.2 2.2"/></svg>Set alarm</button>
+                    </div>
+                  </form>
+                  <p class="j-hint alarm-hint" id="alarmHint"><span id="alarmHintText"></span> <button class="linkish" type="button" id="alarmAllow" hidden>Allow notifications</button></p>
+                  <textarea id="remindText" class="j-text" maxlength="5000" aria-labelledby="remindLabel" placeholder="Other things you mustn’t forget…"></textarea>
                   <span class="j-saved" id="remindSaved" aria-live="polite"></span>
                 </section>
               </div>
@@ -401,6 +412,18 @@
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
 
+  <!-- A reminder going off -->
+  <dialog class="dlg alarm-dlg" id="alarmDlg" aria-labelledby="alarmDlgText">
+    <svg class="alarm-bell" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a5.5 5.5 0 0 0-5.5 5.5v4L4.5 16.5h15L17.5 13V9A5.5 5.5 0 0 0 12 3.5z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+    <p class="eyebrow-dark" id="alarmDlgKind">Reminder</p>
+    <h3 id="alarmDlgText"></h3>
+    <p class="note" id="alarmDlgWhen"></p>
+    <div class="row end">
+      <button class="btn ghost" type="button" id="alarmSnooze">Snooze 10 min</button>
+      <button class="btn" type="button" id="alarmDone">Done</button>
+    </div>
+  </dialog>
+
   <!-- Take a picture (computer webcam; phones use their own camera app) -->
   <dialog class="dlg camera-dlg" id="cameraDlg" aria-labelledby="cameraTitle">
     <h3 id="cameraTitle">Take a picture</h3>
@@ -463,11 +486,11 @@
     </div>
   </div>
 
-  <script src="config.js?v=2.4.1"></script>
+  <script src="config.js?v=2.5.0"></script>
   <script src="vendor/supabase.js" defer></script>
-  <script src="app.js?v=2.4.1" defer></script>
-  <script src="sync.js?v=2.4.1" defer></script>
-  <script src="chat.js?v=2.4.1" defer></script>
-  <script src="lock.js?v=2.4.1" defer></script>
+  <script src="app.js?v=2.5.0" defer></script>
+  <script src="sync.js?v=2.5.0" defer></script>
+  <script src="chat.js?v=2.5.0" defer></script>
+  <script src="lock.js?v=2.5.0" defer></script>
 </body>
 </html>

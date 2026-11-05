@@ -98,7 +98,12 @@ A leather-bound journal page with today's **Month** and **Date** filled in, and 
 - **Tasks to Complete:** write on the *Write a list item…* line and press Enter. Tick the box when it's done
   (it counts towards your daily streak). Filter with *To do / Done / All*.
 - **Top Priorities:** up to six. Write on its own line, or tap ⚡ on any task to move it up (tap again to move it back).
-- **Notes & Ideas** and **Important Reminders:** free-writing boxes, saved as you type.
+- **Notes & Ideas:** a free-writing box, saved as you type.
+- **Important Reminders:** type *Remind me to…*, pick a **date and time**, and tap **Set alarm**. When it's due it
+  rings: a chime, a vibration on phones, a pop-up with **Snooze 10 min** / **Done**, and a system notification if you
+  tap *Allow notifications*. Reminders sync between your devices; *Done* on one stops it ringing on the others.
+  A reminder missed in the last day rings the next time you open the app. Below it is a free box for other notes.
+  *Limit:* a web app can only ring while it's open or running in the background, not when it's fully closed.
 
 Everything is saved on the device first and synced to your other devices (priorities and notes need
 `supabase-update.sql` on projects set up before version 2.4; until then they stay on the device).
@@ -153,6 +158,7 @@ npm test
 - `tests/social.mjs`: User IDs, display names, Add friend, Follow back and unfollow between two people.
 - `tests/chat.mjs`: chat between friends: live delivery, unread badges, read receipts, offline outbox, saved chats, the follow-each-other lock, and photos (webcam, phone camera, shrinking, offline, 7-day clean-up).
 - `tests/journal.mjs`: the Daily Track page: Month/Date, top priorities (max 6), notes and reminders saving and syncing, and an older database without the update.
+- `tests/alarms.mjs`: reminder alarms: setting, ringing, snooze, done, missed reminders, two devices, and an older database.
 - `tests/version.mjs`: one version number in every file, so browsers never mix old and new files.
 
 ## Releasing an update

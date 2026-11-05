@@ -32,8 +32,9 @@ export function checker() {
 }
 
 /** A browser context acting as one device, using the fake Supabase backend. */
-export async function device(browser, { name, base, fake, errors, ...opts }) {
+export async function device(browser, { name, base, fake, errors, init, ...opts }) {
   const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
+  if (init) await ctx.addInitScript(init);   // runs in the page before the app (e.g. a fake Notification)
   await ctx.exposeFunction('__fakeDb', fake.handle);
   await ctx.route('**/vendor/supabase.js', r => r.fulfill({ path: path.join(root, 'tests', 'fake-supabase.js'), contentType: 'text/javascript' }));
   await ctx.route('**/config.js', r => r.fulfill({ contentType: 'text/javascript',

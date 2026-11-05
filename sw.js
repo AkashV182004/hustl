@@ -1,6 +1,6 @@
 /* Hustl service worker — cache-first app shell, versioned cache.
    Bump VERSION on every deploy so clients pick up the new files (and the ?v= tags in index.html: tests/version.mjs checks they match). */
-const VERSION = 'hustl-v2.4.1';
+const VERSION = 'hustl-v2.5.0';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './sync.js', './chat.js', './lock.js', './config.js',
   './manifest.webmanifest', './vendor/supabase.js',
@@ -50,5 +50,19 @@ self.addEventListener('fetch', event => {
     } catch (err) {
       return new Response('', { status: 504, statusText: 'Offline' });
     }
+  })());
+});
+
+// Tapping a reminder notification: open (or focus) Hustl and pass on Snooze / Done.
+self.addEventListener('notificationclick', event => {
+  const id = event.notification.data && event.notification.data.alarm;
+  event.notification.close();
+  if (!id) return;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const win = wins[0] || await self.clients.openWindow('./');
+    if (!win) return;
+    if (win.focus) await win.focus().catch(() => {});
+    if (event.action === 'done' || event.action === 'snooze') win.postMessage({ type: 'alarm', id, action: event.action });
   })());
 });

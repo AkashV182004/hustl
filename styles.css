@@ -661,6 +661,43 @@ button { cursor: pointer; }
 .j-saved.on { opacity: 1; }
 
 .record-shelf { display: grid; gap: 18px; margin-top: 26px; }
+
+/* Important Reminders: alarms with a date and time */
+.alarm-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.alarm {
+  display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 6px; min-height: 48px; padding: 2px 0;
+  border-bottom: 1px solid var(--pg-line); color: var(--pg-ink);
+}
+.alarm-ico { width: 22px; height: 22px; justify-self: center; fill: #d6a640; stroke: #6d4613; stroke-width: 1.1; }
+.alarm-main { display: grid; min-width: 0; padding: 4px 0; }
+.alarm-main b { font-weight: 600; font-size: 1.02rem; overflow-wrap: anywhere; }
+.alarm-main time { font-size: .9rem; color: var(--pg-ink-soft); }
+.alarm.due .alarm-main time { color: #9b3020; font-weight: 600; }
+.alarm.done { opacity: .6; }
+.alarm.done .alarm-main b { text-decoration: line-through; }
+.alarm.done .alarm-ico { fill: none; }
+.alarm .task-del { width: 38px; height: 40px; }
+.alarm-add { display: grid; gap: 6px; padding: 4px 0 8px; border-bottom: 1px dashed var(--pg-line); }
+.alarm-add .j-input { border-bottom: 1px solid var(--pg-line); }
+.alarm-when { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.alarm-at {
+  flex: 1 1 190px; min-height: 44px; padding: 6px 10px; border: 1.5px solid rgba(92, 60, 28, .4); border-radius: 10px;
+  background: rgba(255, 250, 235, .55); color: var(--pg-ink); font: inherit; font-size: 1rem; color-scheme: light;
+}
+.alarm-at:focus { outline: 2px solid rgba(168, 121, 43, .6); outline-offset: 1px; }
+.alarm-set { gap: 6px; }
+.alarm-set svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.alarm-hint { margin: 8px 2px 12px; }
+.alarm-hint .linkish { margin: 0; min-height: 0; color: #8a4f16; font-style: normal; }
+.j-remind .j-text { min-height: 128px; }
+
+/* the alarm going off */
+.alarm-dlg { text-align: center; width: min(400px, calc(100vw - 32px)); }
+.alarm-dlg h3 { margin: 4px 0 6px; font-family: var(--font-head); font-size: 1.6rem; overflow-wrap: anywhere; }
+.alarm-dlg .row { justify-content: center; margin-top: 18px; }
+.alarm-bell { width: 64px; height: 64px; margin: 0 auto 6px; display: block; fill: #e0a93a; stroke: #6d4613; stroke-width: .9; transform-origin: 50% 10%; animation: ring 1.1s ease-in-out infinite; }
+@keyframes ring { 0%, 50%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(14deg); } 20%, 40% { transform: rotate(-14deg); } }
+@media (prefers-reduced-motion: reduce) { .alarm-bell { animation: none; } }
 .j-tasks .j-filters { margin-bottom: 10px; }
 
 @media (min-width: 700px) {
