@@ -117,6 +117,11 @@ create index if not exists tasks_user_server_updated_idx on public.tasks (user_i
 -- Top Priorities on the Daily Track page: a task can be marked as a priority.
 alter table public.tasks add column if not exists priority boolean not null default false;
 
+-- Daily tasks: a daily task comes back every day until removed; any other task belongs to one day
+-- (the "day" it was added for) and is cleared after that day.
+alter table public.tasks add column if not exists daily boolean not null default false;
+alter table public.tasks add column if not exists day date;
+
 create or replace function public.tasks_before_write()
 returns trigger language plpgsql as $$
 begin

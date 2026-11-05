@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '2.7.0';
+  const APP_VERSION = '2.8.0';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -131,13 +131,16 @@
   /* ---------------- Mutations (save locally first, always) ---------------- */
   async function saveLog() { await store.set('log', state.log); }
 
-  const openPriorities = () => visibleTasks().filter(t => t.priority && !t.done_at).length;
+  // A daily task comes back unticked every day: it only counts as done on the day it was ticked.
+  const isDone = t => !!t.done_at && (!t.daily || dayKey(new Date(t.done_at)) === dayKey());
+  const openPriorities = () => visibleTasks().filter(t => t.priority && !isDone(t)).length;
 
-  async function addTask(text, { priority = false } = {}) {
+  async function addTask(text, { priority = false, daily = false } = {}) {
     text = String(text || '').trim().slice(0, 500);
     if (!text) return null;
     const ts = nowISO();
-    const t = { id: uuid(), text, created_at: ts, done_at: null, updated_at: ts, deleted: false, priority: !!priority };
+    const t = { id: uuid(), text, created_at: ts, done_at: null, updated_at: ts, deleted: false, priority: !!priority,
+      daily: !!daily, day: daily ? null : dayKey() };
     state.tasks.unshift(t);
     await store.putTasks([t]);
     emit('tasks', [t]);
@@ -149,7 +152,7 @@
     if (!t) return null;
     const before = currentStreak(state.log);
     const ts = nowISO();
-    if (!t.done_at) {
+    if (!isDone(t)) {
       t.done_at = ts;
       const k = dayKey();
       state.log[k] = (state.log[k] || 0) + 1;
@@ -169,7 +172,7 @@
   async function togglePriority(id) {
     const t = state.tasks.find(x => x.id === id);
     if (!t) return null;
-    if (!t.priority && !t.done_at && openPriorities() >= PRIORITY_MAX) return { full: true };
+    if (!t.priority && !isDone(t) && openPriorities() >= PRIORITY_MAX) return { full: true };
     t.priority = !t.priority; t.updated_at = nowISO();
     await store.putTasks([t]);
     emit('tasks', [t]);
@@ -462,7 +465,7 @@
 
   async function clearCompleted() {
     const ts = nowISO();
-    const changed = state.tasks.filter(t => !t.deleted && t.done_at);
+    const changed = state.tasks.filter(t => !t.deleted && !t.daily && t.done_at);
     changed.forEach(t => { t.deleted = true; t.updated_at = ts; });
     await store.putTasks(changed);
     if (changed.length) emit('tasks', changed);
@@ -478,10 +481,13 @@
       const clean = {
         id: r.id, text: r.text.slice(0, 500), created_at: r.created_at || nowISO(),
         done_at: r.done_at || null, updated_at: r.updated_at || r.created_at || nowISO(), deleted: !!r.deleted,
+        daily: !!r.daily, day: r.day ? String(r.day).slice(0, 10) : null,
       };
       const local = byId.get(clean.id);
-      // a server without the priority column sends none: keep what this device has
+      // a server without these newer columns sends none: keep what this device has
       clean.priority = r.priority === undefined ? !!(local && local.priority) : !!r.priority;
+      if (r.daily === undefined && local) clean.daily = !!local.daily;
+      if (r.day === undefined) clean.day = local ? local.day || null : (clean.daily ? null : dayKey(new Date(clean.created_at)));
       if (!local) { state.tasks.push(clean); byId.set(clean.id, clean); changed.push(clean); }
       else if (clean.updated_at > local.updated_at) { Object.assign(local, clean); changed.push(local); }
     }
@@ -493,6 +499,7 @@
     sortTasks();
     await store.putTasks(changed);
     if (logChanged) await saveLog();
+    await rollOver();
     render();
     return { tasks: changed.length, logChanged };
   }
@@ -567,17 +574,23 @@
 
   function taskEl(t) {
     const li = document.createElement('li');
-    li.className = 'task' + (t.done_at ? ' done' : '');
+    const done = isDone(t);
+    li.className = 'task' + (done ? ' done' : '') + (t.daily ? ' daily' : '');
     li.dataset.id = t.id;
     li.innerHTML = `
-      <button class="task-check" type="button" aria-pressed="${t.done_at ? 'true' : 'false'}">
+      <button class="task-check" type="button" aria-pressed="${done ? 'true' : 'false'}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="box" d="${SVG_BOX}"/><path class="tick" d="${SVG_TICK}"/></svg>
       </button>
       <div class="task-text"><span></span></div>
       <button class="task-prio" type="button" aria-pressed="${t.priority ? 'true' : 'false'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${SVG_BOLT}"/></svg></button>
       <button class="task-del" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>`;
     $('.task-text span', li).textContent = t.text; // textContent: never interpreted as HTML
-    $('.task-check', li).setAttribute('aria-label', (t.done_at ? 'Mark not done: ' : 'Mark done: ') + t.text);
+    if (t.daily) {
+      const tag = document.createElement('span');
+      tag.className = 'daily-tag'; tag.textContent = '↻ Daily'; tag.title = 'Comes back every day';
+      $('.task-text', li).appendChild(tag);
+    }
+    $('.task-check', li).setAttribute('aria-label', (done ? 'Mark not done: ' : 'Mark done: ') + t.text);
     const prio = $('.task-prio', li);
     prio.setAttribute('aria-label', (t.priority ? 'Move back to tasks: ' : 'Make top priority: ') + t.text);
     prio.title = t.priority ? 'Move back to tasks' : 'Make it a top priority';
@@ -586,7 +599,7 @@
   }
 
   function matchesFilter(t) {
-    return state.filter === 'all' || (state.filter === 'done' ? !!t.done_at : !t.done_at);
+    return state.filter === 'all' || (state.filter === 'done' ? isDone(t) : !isDone(t));
   }
 
   // Empty ruled lines, so the page always looks like a journal page.
@@ -602,7 +615,7 @@
   function renderList(flipId) {
     // Tasks to Complete: everything that isn't a top priority (filtered); Top Priorities: open ones first, then done.
     const list = visibleTasks().filter(t => !t.priority).filter(matchesFilter);
-    const prio = visibleTasks().filter(t => t.priority).sort((a, b) => !!a.done_at - !!b.done_at);
+    const prio = visibleTasks().filter(t => t.priority).sort((a, b) => isDone(a) - isDone(b));
     els.list.replaceChildren(...list.map(withFlip(flipId)), ...blankRows(4 - list.length));
     const open = openPriorities();
     els.prioList.replaceChildren(...prio.map(withFlip(flipId)), ...blankRows(PRIORITY_MAX - 1 - prio.length));
@@ -625,9 +638,9 @@
   }
 
   function renderFooter() {
-    const left = visibleTasks().filter(t => !t.done_at).length;
+    const left = visibleTasks().filter(t => !isDone(t)).length;
     els.left.textContent = `${left} task${left === 1 ? '' : 's'} left`;
-    els.clear.disabled = !visibleTasks().some(t => t.done_at);
+    els.clear.disabled = !visibleTasks().some(t => !t.daily && t.done_at);
   }
 
   function renderStreak() {
@@ -650,7 +663,7 @@
     const today = state.log[dayKey()] || 0;
     const daysActive = Object.values(state.log).filter(n => n > 0).length;
     const vis = visibleTasks();
-    const pct = vis.length ? Math.round(vis.filter(t => t.done_at).length / vis.length * 100) : 0;
+    const pct = vis.length ? Math.round(vis.filter(isDone).length / vis.length * 100) : 0;
     els.statToday.textContent = today;
     els.statDays.textContent = daysActive;
     els.statPct.textContent = pct + '%';
@@ -919,7 +932,25 @@
     clearTimeout(midnightTimer);
     const now = new Date();
     const next = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), 1);
-    midnightTimer = setTimeout(() => { render(); scheduleMidnight(); }, next - now + 1000);
+    midnightTimer = setTimeout(() => { rollOver(); render(); scheduleMidnight(); }, next - now + 1000);
+  }
+
+  // A new day: "just today" tasks from earlier days vanish (daily ones come back unticked by themselves).
+  // Removed with a sync-able delete, so every device agrees. The streak log is untouched.
+  async function rollOver() {
+    const today = dayKey(), ts = nowISO();
+    const gone = state.tasks.filter(t => !t.deleted && !t.daily && t.day && t.day < today);
+    gone.forEach(t => { t.deleted = true; t.updated_at = ts; });
+    if (gone.length) { await store.putTasks(gone); emit('tasks', gone); }
+    return gone.length;
+  }
+
+  // Tasks from before daily tasks existed have no day: give them today, so the update clears nothing.
+  async function giveTasksADay() {
+    const today = dayKey();
+    const old = state.tasks.filter(t => !t.deleted && !t.daily && !t.day);
+    old.forEach(t => { t.day = today; });
+    if (old.length) await store.putTasks(old);
   }
 
   /* ---------------- Events ---------------- */
@@ -929,14 +960,29 @@
       const text = input.value;
       input.value = '';
       if (opts.priority && openPriorities() >= PRIORITY_MAX) { toast('Top Priorities holds six. Finish one first ✒️'); return; }
-      const t = await addTask(text, opts);
+      const t = await addTask(text, { priority: !!opts.priority, daily: !!opts.daily });
       if (!t) { input.focus(); return; }
       if (state.filter === 'done') setFilter('active', false);
       render(t.id);
       // ready for the next one, unless you've already moved on to another box
       if (document.activeElement === document.body || form.contains(document.activeElement)) input.focus();
     });
-    onAdd(els.form, els.input, {});
+    // Adding a task asks: just for today, or every day?
+    let kind = 'once';
+    const setKind = k => { kind = k; els.kinds.forEach(b => b.setAttribute('aria-checked', String(b.dataset.kind === k))); };
+    els.kinds.forEach(b => b.addEventListener('click', () => {
+      setKind(b.dataset.kind);
+      if (els.input.value.trim()) els.form.requestSubmit(); else els.input.focus();
+    }));
+    els.form.addEventListener('submit', () => {
+      const daily = kind === 'daily';
+      setTimeout(() => setKind('once'), 0);   // back to "Just today" for the next one (after the task is saved)
+      if (daily && els.input.value.trim()) toast('↻ Daily task added: it’ll be here every day until you remove it.');
+    });
+    onAdd(els.form, els.input, { get daily() { return kind === 'daily'; } });
+    // keep the choice on screen while there's text (a tap on it can take focus away on iPhone)
+    els.input.addEventListener('input', () => els.form.classList.toggle('has-text', !!els.input.value.trim()));
+    els.form.addEventListener('submit', () => setTimeout(() => els.form.classList.toggle('has-text', !!els.input.value.trim()), 0));
     onAdd(els.prioForm, els.prioInput, { priority: true });
 
     const onListClick = async e => {
@@ -945,11 +991,12 @@
       const inPrio = !!li.closest('#prioList');
       if (e.target.closest('.task-check')) {
         const r = await toggleTask(id); if (!r) return;
-        li.classList.toggle('done', !!r.task.done_at);
+        const nowDone = isDone(r.task);
+        li.classList.toggle('done', nowDone);
         const btn = $('.task-check', li);
-        btn.setAttribute('aria-pressed', String(!!r.task.done_at));
-        btn.setAttribute('aria-label', (r.task.done_at ? 'Mark not done: ' : 'Mark done: ') + r.task.text);
-        if (r.task.done_at) { inkSplash(li); sound.strum(); buzz(12); }
+        btn.setAttribute('aria-pressed', String(nowDone));
+        btn.setAttribute('aria-label', (nowDone ? 'Mark not done: ' : 'Mark done: ') + r.task.text);
+        if (nowDone) { inkSplash(li); sound.strum(); buzz(12); }
         renderStreak(); renderStats();
         if (r.streakUp) popStreak();
         if (inPrio || !matchesFilter(r.task)) {
@@ -965,7 +1012,11 @@
         if (r && r.full) return toast('Top Priorities holds six. Finish one, or move one back first ✒️');
         render(id);
       } else if (e.target.closest('.task-del')) {
+        const t = state.tasks.find(x => x.id === id);
         await deleteTask(id);
+        if (t && t.daily) toast(`Daily task removed: it won’t come back tomorrow.`, { actionLabel: 'Undo', duration: 6000, action: async () => {
+          t.deleted = false; t.updated_at = nowISO(); await store.putTasks([t]); emit('tasks', [t]); render(t.id);
+        } });
         if (reducedMotion()) { render(); return; }
         li.classList.add('leaving');
         setTimeout(render, 430);
@@ -1046,7 +1097,7 @@
     $('#exportBtn').addEventListener('click', exportJSON);
     $('#importFile').addEventListener('change', e => { importJSON(e.target.files[0]); e.target.value = ''; });
 
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { render(); scheduleMidnight(); scheduleAlarms(); } });
+    document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible') { await rollOver(); render(); scheduleMidnight(); scheduleAlarms(); } });
     setInterval(renderStreak, 60 * 1000); // keep "Xh left" fresh
   }
 
@@ -1065,7 +1116,7 @@
       alarmList: $('#alarmList'), alarmForm: $('#alarmForm'), alarmText: $('#alarmText'), alarmAt: $('#alarmAt'),
       alarmHintText: $('#alarmHintText'), alarmAllow: $('#alarmAllow'), alarmDlg: $('#alarmDlg'), alarmKind: $('#alarmDlgKind'),
       alarmDlgText: $('#alarmDlgText'), alarmWhen: $('#alarmDlgWhen'), alarmDone: $('#alarmDone'), alarmSnooze: $('#alarmSnooze'),
-      jMonth: $('#jMonth'), jDate: $('#jDate'),
+      jMonth: $('#jMonth'), jDate: $('#jDate'), kinds: $$('#addForm .kind-btn'),
       phoneCard: $('#phoneCard'), phoneTitle: $('#phoneCardTitle'), phoneText: $('#phoneCardText'), phoneGo: $('#phoneCardGo'), phoneClose: $('#phoneCardClose'),
       left: $('#leftCount'), clear: $('#clearDone'), card: $('#streakCard'), streakNum: $('#streakNum'),
       streakUnit: $('#streakUnit'), streakMsg: $('#streakMsg'), best: $('#bestNum'), heroStreak: $('#heroStreak'), heroStreakText: $('#heroStreakText'),
@@ -1086,6 +1137,8 @@
     if (settings) Object.assign(state.settings, settings);
     else { try { const t = localStorage.getItem('hustl:theme'); if (t) state.settings.theme = t; } catch {} }
     sortTasks();
+    await giveTasksADay();
+    await rollOver();
 
     els.sound.checked = !!state.settings.sound;
     applyTheme();
@@ -1105,7 +1158,7 @@
 
   /* Public API for sync.js / chat.js (and debugging). */
   window.Hustl = {
-    version: APP_VERSION, store, state, toast, render, mergeData, mergeNotes, setNote, togglePriority, mergeAlarms, addAlarm, setPushActive, setBadge, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
+    version: APP_VERSION, store, state, toast, render, mergeData, mergeNotes, setNote, togglePriority, mergeAlarms, addAlarm, setPushActive, setBadge, rollOver, isDone, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
     streakInfo, currentStreak, bestStreak,
     on: fn => { listeners.add(fn); return () => listeners.delete(fn); },
     ready: new Promise(res => addEventListener('hustl:ready', res, { once: true })),

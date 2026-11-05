@@ -1,7 +1,13 @@
--- Hustl update 2.6 (reminder alarms + push): run once in Supabase → SQL Editor → New query → Run. Safe to run again.
--- Adds: "Important Reminders" with a date and time (alarms), synced between your devices; the device list for
+-- Hustl update 2.8 (daily tasks, reminder alarms, push): run once in Supabase → SQL Editor → New query → Run. Safe to run again.
+-- Adds: daily tasks; "Important Reminders" with a date and time (alarms), synced between your devices; the device list for
 -- notifications that arrive even when Hustl is closed; and live updates for tasks and the streak.
 -- (Already in supabase.sql for new projects. The every-30-seconds schedule is in supabase-push-schedule.sql.)
+
+
+-- Daily tasks: a daily task comes back every day until removed; any other task belongs to one day
+-- (the "day" it was added for) and is cleared after that day.
+alter table public.tasks add column if not exists daily boolean not null default false;
+alter table public.tasks add column if not exists day date;
 
 -- ---------------------------------------------------------------------
 -- ALARMS — "Important Reminders" with a date and time. Synced like tasks: last write wins by updated_at.

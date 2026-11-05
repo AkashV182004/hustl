@@ -654,6 +654,20 @@ body.kb-open .toasts { bottom: calc(16px + var(--safe-b)); }
 .j-addbtn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
 .j-addbtn:hover { color: #4a2b10; filter: brightness(1.04); }
 
+/* "Add as: Just today / ↻ Daily task" — shows while you write a task */
+.kind-row { grid-column: 1 / -1; display: none; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0 10px 40px; }
+.j-add:focus-within .kind-row, .j-add.has-text .kind-row { display: flex; }
+.kind-label { font-size: .9rem; font-style: italic; color: var(--pg-ink-soft); }
+.kind-btn {
+  min-height: 38px; padding: 4px 14px; border-radius: 999px; border: 1.5px solid rgba(92, 60, 28, .4);
+  background: rgba(255, 250, 235, .45); color: var(--pg-ink); font: inherit; font-size: .95rem; font-weight: 600;
+}
+.kind-btn[aria-checked="true"] { background: linear-gradient(180deg, #d4733b, #b8561f); border-color: #9a4718; color: #fff8ee; }
+.daily-tag {
+  display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px; vertical-align: 1px;
+  font-size: .78rem; font-weight: 700; line-height: 1.6; color: #6d4613; background: rgba(224, 169, 58, .28); border: 1px solid rgba(168, 121, 43, .5);
+}
+
 .journal .empty { margin: 14px 4px 6px; color: var(--pg-ink-soft); font-style: italic; }
 .journal .list-foot { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--pg-line); color: var(--pg-ink-soft); }
 .journal .btn.ghost { color: var(--pg-ink); border-color: rgba(92, 60, 28, .45); background: rgba(255, 250, 235, .3); }
@@ -745,6 +759,8 @@ body.kb-open .toasts { bottom: calc(16px + var(--safe-b)); }
   .j-prio { order: -1; }
   .j-notes, .j-remind { order: 1; }
   .journal .task-del, .task-prio { opacity: .7; }
+  .kind-row { padding-left: 2px; }
+  .kind-btn { padding: 4px 12px; }
 }
 
 /* ---------- Chats / Settings ---------- */

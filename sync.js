@@ -27,8 +27,16 @@
   let debounce = null;
   // Set when the database doesn't have the Daily Track additions yet (supabase-update.sql not run):
   // priorities and notes then stay on this device, and everything else keeps syncing.
-  let noPriorityColumn = false, noNotesTable = false, noAlarmsTable = false;
-  const missingColumn = e => e && (e.code === '42703' || e.code === 'PGRST204' || /priority/.test(e.message || ''));
+  let noNotesTable = false, noAlarmsTable = false;
+  // Task columns added in later updates; any the database doesn't have yet are left out (they stay on this device).
+  const OPTIONAL_COLS = ['priority', 'daily', 'day'];
+  const missingCols = new Set();
+  const missingColumn = e => {
+    if (!e || !(e.code === '42703' || e.code === 'PGRST204')) return null;
+    const m = String(e.message || '').match(/'(\w+)' column|column \w+\.(\w+) does not exist|column "(\w+)"/);
+    const col = m && (m[1] || m[2] || m[3]);
+    return OPTIONAL_COLS.includes(col) && !missingCols.has(col) ? col : null;
+  };
   const missingTable = e => e && (e.code === '42P01' || e.code === 'PGRST205' || /not find the table|does not exist/.test(e.message || ''));
   let live = null;          // Realtime channels (one per table): tell this device the moment another device saves
   const outbox = new Set(); // ids of tasks changed locally and not yet pushed
@@ -79,10 +87,15 @@
   /* ---------------- Sync ---------------- */
   const iso = v => (v ? new Date(v).toISOString() : null); // Postgres "+00:00" → JS "Z" so comparisons are exact
   const fromRow = r => ({ id: r.id, text: r.text, created_at: iso(r.created_at), done_at: iso(r.done_at), updated_at: iso(r.updated_at), deleted: !!r.deleted,
-    ...(r.priority === undefined ? {} : { priority: !!r.priority }) });
-  const toRow = (t, uid) => ({ id: t.id, user_id: uid, text: t.text, created_at: t.created_at, done_at: t.done_at, updated_at: t.updated_at, deleted: !!t.deleted,
-    ...(noPriorityColumn ? {} : { priority: !!t.priority }) });
-  const TASK_COLS = () => 'id,text,created_at,done_at,updated_at,deleted,server_updated_at' + (noPriorityColumn ? '' : ',priority');
+    ...(r.priority === undefined ? {} : { priority: !!r.priority }),
+    ...(r.daily === undefined ? {} : { daily: !!r.daily }), ...(r.day === undefined ? {} : { day: r.day }) });
+  const toRow = (t, uid) => {
+    const row = { id: t.id, user_id: uid, text: t.text, created_at: t.created_at, done_at: t.done_at, updated_at: t.updated_at, deleted: !!t.deleted,
+      priority: !!t.priority, daily: !!t.daily, day: t.day || null };
+    missingCols.forEach(c => delete row[c]);
+    return row;
+  };
+  const TASK_COLS = () => ['id', 'text', 'created_at', 'done_at', 'updated_at', 'deleted', 'server_updated_at', ...OPTIONAL_COLS.filter(c => !missingCols.has(c))].join(',');
 
   async function syncNow() {
     if (!sb || !session || !navigator.onLine) { updateAir(); renderAccount(); return; }
@@ -106,7 +119,8 @@
         let { data, error } = await sb.from('tasks')
           .select(TASK_COLS())
           .gt('server_updated_at', since).order('server_updated_at', { ascending: true }).limit(PAGE);
-        if (error && !noPriorityColumn && missingColumn(error)) { noPriorityColumn = true; continue; }
+        const gone = missingColumn(error);
+        if (gone) { missingCols.add(gone); continue; }
         if (error) throw error;
         if (data.length) {
           await H.mergeData({ tasks: data.map(fromRow) });
@@ -122,9 +136,9 @@
       const rows = ids.map(id => byId.get(id)).filter(Boolean).map(t => toRow(t, uid));
       for (let i = 0; i < rows.length; i += PAGE) {
         let { error } = await sb.from('tasks').upsert(rows.slice(i, i + PAGE), { onConflict: 'id' });
-        if (error && !noPriorityColumn && missingColumn(error)) {
-          noPriorityColumn = true;
-          rows.forEach(r => { delete r.priority; });
+        for (let col = missingColumn(error); col; col = missingColumn(error)) {   // drop columns the database doesn't have yet
+          missingCols.add(col);
+          rows.forEach(r => { delete r[col]; });
           ({ error } = await sb.from('tasks').upsert(rows.slice(i, i + PAGE), { onConflict: 'id' }));
         }
         if (error) throw error;

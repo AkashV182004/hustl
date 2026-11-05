@@ -202,6 +202,11 @@ ok((await as(U1, `select body from public.notes where kind = 'notes'`)).rows[0].
 ok(!!(await note(U1, 'shopping', 'x', '2026-11-05T11:00:00Z')).error, 'only "notes" and "reminders" are allowed');
 ok(!!(await note(U1, 'notes', 'x'.repeat(5001), '2026-11-05T11:00:00Z')).error, 'notes are limited to 5000 characters');
 
+console.log('\n▶ daily tasks');
+await as(U1, `update public.tasks set daily = true, updated_at = now() + interval '2 seconds' where id = '${PT}'`);
+ok((await as(U1, `select daily, day from public.tasks where id = '${PT}'`)).rows[0]?.daily === true, 'a task can be marked as a daily task');
+ok(!(await as(U1, `update public.tasks set day = '2026-11-06', updated_at = now() + interval '3 seconds' where id = '${PT}'`)).error, 'and a one-off task records the day it belongs to');
+
 console.log('\n▶ reminder alarms');
 const AL = '88888888-8888-4888-8888-888888888888';
 const alarm = (uid, id, text, due, at, extra = '') => as(uid, `insert into public.alarms (id, user_id, text, due_at, updated_at${extra ? ', done_at' : ''})

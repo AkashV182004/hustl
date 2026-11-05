@@ -98,8 +98,9 @@ export function createFakeServer() {
 
     const { table, filters = [] } = p;
     if (table === 'tasks') {
-      if (api.oldSchema && (/priority/.test(p.columns || '') || (p.rows || []).some(r => 'priority' in r))) {
-        return { error: { code: 'PGRST204', message: "Could not find the 'priority' column of 'tasks' in the schema cache" } };
+      if (api.oldSchema) {   // a database from before the priority / daily-task updates
+        const col = ['priority', 'daily', 'day'].find(c => new RegExp('\\b' + c + '\\b').test(p.columns || '') || (p.rows || []).some(r => c in r));
+        if (col) return { error: { code: 'PGRST204', message: `Could not find the '${col}' column of 'tasks' in the schema cache` } };
       }
       if (p.op === 'select') {
         let rows = [...db.tasks.values()].filter(r => r.user_id === uid && match(r, filters));

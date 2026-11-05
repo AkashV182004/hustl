@@ -107,7 +107,10 @@ the first time (**Sign in** after that, on any device) → the **ON AIR** light 
 
 ## The Daily Track page (Tasks tab)
 A leather-bound journal page with today's **Month** and **Date** filled in, and four sections:
-- **Tasks to Complete:** write on the *Write a list item…* line and press Enter. Tick the box when it's done
+- **Tasks to Complete:** write on the *Write a list item…* line; it asks **Add as: Just today / ↻ Daily task**.
+  A **daily task** comes back unticked every day until you remove it (✕, with Undo). A **just today** task
+  is cleared at midnight. Ticks count towards your streak either way; your streak history is kept.
+- (Enter adds a *Just today* task.) Tick the box when it's done
   (it counts towards your daily streak). Filter with *To do / Done / All*.
 - **Top Priorities:** up to six. Write on its own line, or tap ⚡ on any task to move it up (tap again to move it back).
 - **Notes & Ideas:** a free-writing box, saved as you type.
@@ -182,6 +185,7 @@ npm test
 - `tests/social.mjs`: User IDs, display names, Add friend, Follow back and unfollow between two people.
 - `tests/chat.mjs`: chat between friends: live delivery, unread badges, read receipts, offline outbox, saved chats, the follow-each-other lock, and photos (webcam, phone camera, shrinking, offline, 7-day clean-up).
 - `tests/journal.mjs`: the Daily Track page: Month/Date, top priorities (max 6), notes and reminders saving and syncing, and an older database without the update.
+- `tests/daily.mjs`: daily vs just-today tasks across midnight, removing with Undo, other devices, an older database.
 - `tests/alarms.mjs`: reminder alarms: setting, ringing, snooze, done, missed reminders, two devices, and an older database.
 - `tests/mobile.mjs`: Hustl on an Android phone and an iPhone: fits the screen, tap sizes, no zoom when typing, install / alarm card, Back button, shortcut.
 - `tests/webpush.mjs`, `tests/pushfn.mjs`, `tests/push.mjs`: push encryption (matches the RFC example), the server function, and real pushes into the service worker with the app closed.
