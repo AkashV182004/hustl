@@ -1,6 +1,6 @@
 // The "ai" server function's logic (supabase/functions/ai/core.mjs) with a stand-in Gemini.
 // Run: node tests/aifn.mjs
-import { handle, buildRequest, readResponse, TOOLS, DEFAULT_MODEL } from '../supabase/functions/ai/core.mjs';
+import { handle, buildRequest, readResponse, TOOLS, DEFAULT_MODEL, FALLBACK_MODEL } from '../supabase/functions/ai/core.mjs';
 
 let failures = 0;
 const ok = (c, m) => { console.log(`${c ? '  ✓' : '  ✗'} ${m}`); if (!c) failures++; };
@@ -39,7 +39,8 @@ console.log('\n▶ the endpoint');
 let calls = [], counts = {};
 const ctx = (over = {}) => ({
   env: { GEMINI_API_KEY: 'test-key', DAILY_LIMIT: '3', ...(over.env || {}) },
-  fetch: async (url, init) => { calls.push({ url, init }); return over.gemini ? over.gemini() : { ok: true, json: async () => resp }; },
+  fetch: async (url, init) => { calls.push({ url, init }); return over.gemini ? over.gemini(url) : { ok: true, json: async () => resp }; },
+  sleep: async () => {},
   userFromToken: async t => (t === 'good' ? { id: 'u1' } : null),
   takeMessage: async (u, limit) => { counts[u] = (counts[u] || 0) + 1; return counts[u] > limit ? null : counts[u]; },
 });
@@ -60,13 +61,47 @@ data = await res.json();
 ok(res.status === 429 && data.message.includes('3 Hustl AI messages'), 'over the daily limit → friendly "more tomorrow"');
 
 counts = {};
-res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: false, status: 429, text: async () => 'quota' }) }));
-ok(res.status === 502 && (await res.json()).message.includes('busy'), 'Gemini busy → "try again in a minute"');
+const overloaded = { ok: false, status: 503, text: async () => JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand.' } }) };
+calls = []; counts = {};
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => (url.includes(DEFAULT_MODEL) ? overloaded : { ok: true, json: async () => resp }) }));
+data = await res.json();
+ok(res.status === 200 && data.text.includes('6 pm'), `main model overloaded → tries again, then answers with ${FALLBACK_MODEL}`);
+ok(calls.length === 3 && calls[0].url.includes(DEFAULT_MODEL) && calls[1].url.includes(DEFAULT_MODEL) && calls[2].url.includes(FALLBACK_MODEL), 'order: main, main again, fallback');
+calls = []; counts = {};
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => overloaded }));
+data = await res.json();
+ok(res.status === 502 && data.message.includes('busy') && data.reason.startsWith('503 UNAVAILABLE'), 'all overloaded → "busy, try again in a minute" (with Google’s reason)');
+calls = []; counts = {};
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: false, status: 429, text: async () => '{"error":{"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}' }) }));
+ok(res.status === 502 && (await res.json()).message.includes('usage limit') && calls.length === 1, 'over Google quota → says so, no pointless retries');
+calls = []; counts = {};
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: false, status: 400, text: async () => '{"error":{"status":"INVALID_ARGUMENT","message":"bad"}}' }) }));
+ok(res.status === 502 && calls.length === 1, 'other errors are not retried');
+counts = {};
 res = await post(ask, { authorization: 'Bearer good' }, ctx({ env: { GEMINI_API_KEY: '' } }));
 ok(res.status === 503 && (await res.json()).error === 'not_configured', 'no Gemini key set → "isn’t set up yet"');
 res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: true, json: async () => ({ promptFeedback: { blockReason: 'SAFETY' }, candidates: [] }) }) }));
 ok((await res.json()).text.includes('can’t help with that'), 'a blocked answer → a polite message, not an empty bubble');
 ok((await handle(new Request('https://fn.example/ai', { method: 'OPTIONS' }), ctx())).headers.get('Access-Control-Allow-Origin') === '*', 'answers the browser pre-flight (CORS)');
+
+counts = {}; calls = [];
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: url => { if (url.includes(DEFAULT_MODEL)) throw new Error('The operation timed out'); return { ok: true, json: async () => resp }; } }));
+data = await res.json();
+ok(res.status === 200 && calls.length === 2 && calls[1].url.includes(FALLBACK_MODEL), 'main model hangs (time limit) → straight to the fallback, no second wait');
+ok(calls.every(c => c.init.signal || typeof AbortSignal === 'undefined'), 'every call to Google has a time limit');
+
+console.log('\n▶ actions without words');
+counts = {}; calls = [];
+const actionsOnly = { candidates: [{ content: { role: 'model', parts: [
+  { functionCall: { name: 'add_task', args: { text: 'Buy bread' }, id: 'c1' }, thoughtSignature: 'sig-1' } ] } }] };
+const words = { candidates: [{ content: { role: 'model', parts: [{ text: 'Added bread. Left today: pay the electricity bill.' }] } }] };
+res = await post(ask, { authorization: 'Bearer good' }, ctx({ gemini: () => ({ ok: true, json: async () => (calls.length === 1 ? actionsOnly : words) }) }));
+data = await res.json();
+ok(data.actions.length === 1 && data.text.startsWith('Added bread'), 'only actions → asks once more and returns its short reply with the actions');
+const follow = JSON.parse(calls[1].init.body);
+ok(follow.contents.at(-2).parts[0].thoughtSignature === 'sig-1' && follow.contents.at(-1).parts[0].functionResponse.id === 'c1', 'the follow-up sends the model’s turn back unchanged and answers each call');
+ok(follow.toolConfig.functionCallingConfig.mode === 'NONE', 'and allows no further actions');
+ok(data.model === DEFAULT_MODEL, 'says which model answered');
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);
