@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '2.3.0';
+  const APP_VERSION = '2.4.0';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -90,7 +90,10 @@
     log: {},            // { 'YYYY-MM-DD': count }
     settings: { theme: 'auto', sound: false },
     filter: 'active',
+    notes: { notes: { body: '', updated_at: null }, reminders: { body: '', updated_at: null } },  // Daily Track text boxes
   };
+  const PRIORITY_MAX = 6;   // Top Priorities has six lines
+  const NOTE_KINDS = ['notes', 'reminders'];
   const listeners = new Set();
   const emit = (type, detail) => listeners.forEach(fn => { try { fn(type, detail); } catch (e) { console.error(e); } });
 
@@ -127,11 +130,13 @@
   /* ---------------- Mutations (save locally first, always) ---------------- */
   async function saveLog() { await store.set('log', state.log); }
 
-  async function addTask(text) {
+  const openPriorities = () => visibleTasks().filter(t => t.priority && !t.done_at).length;
+
+  async function addTask(text, { priority = false } = {}) {
     text = String(text || '').trim().slice(0, 500);
     if (!text) return null;
     const ts = nowISO();
-    const t = { id: uuid(), text, created_at: ts, done_at: null, updated_at: ts, deleted: false };
+    const t = { id: uuid(), text, created_at: ts, done_at: null, updated_at: ts, deleted: false, priority: !!priority };
     state.tasks.unshift(t);
     await store.putTasks([t]);
     emit('tasks', [t]);
@@ -157,6 +162,38 @@
     await Promise.all([store.putTasks([t]), saveLog()]);
     emit('tasks', [t]); emit('log', state.log);
     return { task: t, streakUp: currentStreak(state.log) > before };
+  }
+
+  // Move a task onto (or off) the Top Priorities list. Returns { full: true } when all six lines are taken.
+  async function togglePriority(id) {
+    const t = state.tasks.find(x => x.id === id);
+    if (!t) return null;
+    if (!t.priority && !t.done_at && openPriorities() >= PRIORITY_MAX) return { full: true };
+    t.priority = !t.priority; t.updated_at = nowISO();
+    await store.putTasks([t]);
+    emit('tasks', [t]);
+    return { task: t };
+  }
+
+  // Notes & Ideas / Important Reminders: saved on the device at once, synced like tasks (last write wins).
+  async function setNote(kind, body) {
+    if (!NOTE_KINDS.includes(kind)) return;
+    body = String(body || '').slice(0, 5000);
+    if (state.notes[kind].body === body) return;
+    state.notes[kind] = { body, updated_at: nowISO() };
+    await store.set('notes', state.notes);
+    emit('notes', kind);
+  }
+
+  async function mergeNotes(rows = []) {
+    let changed = false;
+    for (const r of rows) {
+      if (!r || !NOTE_KINDS.includes(r.kind) || typeof r.body !== 'string' || !r.updated_at) continue;
+      const at = new Date(r.updated_at).toISOString(), local = state.notes[r.kind];
+      if (!local.updated_at || at > local.updated_at) { state.notes[r.kind] = { body: r.body.slice(0, 5000), updated_at: at }; changed = true; }
+    }
+    if (changed) { await store.set('notes', state.notes); renderNotes(); }
+    return changed;
   }
 
   async function deleteTask(id) {
@@ -187,6 +224,8 @@
         done_at: r.done_at || null, updated_at: r.updated_at || r.created_at || nowISO(), deleted: !!r.deleted,
       };
       const local = byId.get(clean.id);
+      // a server without the priority column sends none: keep what this device has
+      clean.priority = r.priority === undefined ? !!(local && local.priority) : !!r.priority;
       if (!local) { state.tasks.push(clean); byId.set(clean.id, clean); changed.push(clean); }
       else if (clean.updated_at > local.updated_at) { Object.assign(local, clean); changed.push(local); }
     }
@@ -266,8 +305,9 @@
 
   /* ---------------- Rendering ---------------- */
   const els = {};
-  const SVG_BOX = 'M8 3.5h8A4.5 4.5 0 0 1 20.5 8v8a4.5 4.5 0 0 1-4.5 4.5H8A4.5 4.5 0 0 1 3.5 16V8A4.5 4.5 0 0 1 8 3.5z';
-  const SVG_TICK = 'M8 12.3l2.8 2.8L16.2 9.4';
+  const SVG_BOX = 'M4.5 4.5h15v15h-15z';
+  const SVG_TICK = 'M7.5 12.5l3.2 3.2 6.3-7.4';
+  const SVG_BOLT = 'M13.5 2L5 13.5h6L9.5 22 19 9.5h-6.2z';
 
   function taskEl(t) {
     const li = document.createElement('li');
@@ -278,9 +318,13 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path class="box" d="${SVG_BOX}"/><path class="tick" d="${SVG_TICK}"/></svg>
       </button>
       <div class="task-text"><span></span></div>
+      <button class="task-prio" type="button" aria-pressed="${t.priority ? 'true' : 'false'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${SVG_BOLT}"/></svg></button>
       <button class="task-del" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>`;
     $('.task-text span', li).textContent = t.text; // textContent: never interpreted as HTML
     $('.task-check', li).setAttribute('aria-label', (t.done_at ? 'Mark not done: ' : 'Mark done: ') + t.text);
+    const prio = $('.task-prio', li);
+    prio.setAttribute('aria-label', (t.priority ? 'Move back to tasks: ' : 'Make top priority: ') + t.text);
+    prio.title = t.priority ? 'Move back to tasks' : 'Make it a top priority';
     $('.task-del', li).setAttribute('aria-label', 'Delete: ' + t.text);
     return li;
   }
@@ -289,19 +333,39 @@
     return state.filter === 'all' || (state.filter === 'done' ? !!t.done_at : !t.done_at);
   }
 
+  // Empty ruled lines, so the page always looks like a journal page.
+  const blankRows = n => Array.from({ length: Math.max(0, n) }, () => {
+    const li = document.createElement('li'); li.className = 'j-blank'; li.setAttribute('aria-hidden', 'true'); return li;
+  });
+  const withFlip = flipId => t => {
+    const li = taskEl(t);
+    if (t.id === flipId && !reducedMotion()) li.classList.add('flip-in');
+    return li;
+  };
+
   function renderList(flipId) {
-    const list = visibleTasks().filter(matchesFilter);
-    els.list.replaceChildren(...list.map(t => {
-      const li = taskEl(t);
-      if (t.id === flipId && !reducedMotion()) li.classList.add('flip-in');
-      return li;
-    }));
-    const total = visibleTasks().length;
+    // Tasks to Complete: everything that isn't a top priority (filtered); Top Priorities: open ones first, then done.
+    const list = visibleTasks().filter(t => !t.priority).filter(matchesFilter);
+    const prio = visibleTasks().filter(t => t.priority).sort((a, b) => !!a.done_at - !!b.done_at);
+    els.list.replaceChildren(...list.map(withFlip(flipId)), ...blankRows(4 - list.length));
+    const open = openPriorities();
+    els.prioList.replaceChildren(...prio.map(withFlip(flipId)), ...blankRows(PRIORITY_MAX - 1 - prio.length));
+    els.prioForm.hidden = open >= PRIORITY_MAX;
+    els.prioHint.textContent = open >= PRIORITY_MAX ? 'All six lines are taken. Finish one, or tap ⚡ to move it back.'
+      : 'Tap ⚡ on any task to make it a top priority (up to 6).';
+    const total = visibleTasks().filter(t => !t.priority).length;
     els.empty.hidden = list.length > 0;
-    els.empty.textContent = total === 0 ? 'Quiet room… add your first track 🎸'
-      : state.filter === 'done' ? 'No finished tracks yet — press play on one 🎶'
-      : state.filter === 'active' ? 'All tracks played. Encore? 🎸' : 'Quiet room… add your first track 🎸';
+    els.empty.textContent = total === 0 ? 'Quiet page… write your first task above ✒️'
+      : state.filter === 'done' ? 'Nothing ticked off yet. You’ve got this ✒️'
+      : state.filter === 'active' ? 'Every task done. Encore? 🎸' : 'Quiet page… write your first task above ✒️';
     renderFooter();
+  }
+
+  // Leave a text box alone while someone is typing in it.
+  function renderNotes() {
+    for (const [kind, el] of [['notes', els.notesText], ['reminders', els.remindText]]) {
+      if (document.activeElement !== el && el.value !== state.notes[kind].body) el.value = state.notes[kind].body;
+    }
   }
 
   function renderFooter() {
@@ -356,10 +420,12 @@
     const d = new Date();
     els.ticketDay.textContent = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(d).toUpperCase();
     els.ticketDate.textContent = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d);
+    els.jMonth.textContent = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(d);
+    els.jDate.textContent = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric' }).format(d);
   }
 
   function render(flipId) {
-    renderDate(); renderList(flipId); renderStreak(); renderStats();
+    renderDate(); renderList(flipId); renderNotes(); renderStreak(); renderStats();
   }
 
   function popStreak() {
@@ -430,7 +496,7 @@
 
   /* ---------------- Backup ---------------- */
   function exportJSON() {
-    const data = { app: 'hustl', version: 1, exported_at: nowISO(), tasks: state.tasks, log: state.log };
+    const data = { app: 'hustl', version: 2, exported_at: nowISO(), tasks: state.tasks, log: state.log, notes: state.notes };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = `hustl-backup-${dayKey()}.json`;
@@ -445,6 +511,7 @@
       const data = JSON.parse(await file.text());
       if (!data || !Array.isArray(data.tasks) || typeof data.log !== 'object') throw new Error('bad');
       const r = await mergeData(data);
+      if (data.notes && typeof data.notes === 'object') await mergeNotes(NOTE_KINDS.map(kind => ({ kind, ...(data.notes[kind] || {}) })));
       toast(`Imported ${r.tasks} task${r.tasks === 1 ? '' : 's'} 🎶`);
     } catch { toast("Couldn't read that backup file."); }
   }
@@ -512,19 +579,24 @@
 
   /* ---------------- Events ---------------- */
   function bind() {
-    els.form.addEventListener('submit', async e => {
+    const onAdd = (form, input, opts) => form.addEventListener('submit', async e => {
       e.preventDefault();
-      const text = els.input.value;
-      els.input.value = '';
-      const t = await addTask(text);
-      if (!t) { els.input.focus(); return; }
+      const text = input.value;
+      input.value = '';
+      if (opts.priority && openPriorities() >= PRIORITY_MAX) { toast('Top Priorities holds six. Finish one first ✒️'); return; }
+      const t = await addTask(text, opts);
+      if (!t) { input.focus(); return; }
       if (state.filter === 'done') setFilter('active', false);
       render(t.id);
+      input.focus();
     });
+    onAdd(els.form, els.input, {});
+    onAdd(els.prioForm, els.prioInput, { priority: true });
 
-    els.list.addEventListener('click', async e => {
+    const onListClick = async e => {
       const li = e.target.closest('.task'); if (!li) return;
       const id = li.dataset.id;
+      const inPrio = !!li.closest('#prioList');
       if (e.target.closest('.task-check')) {
         const r = await toggleTask(id); if (!r) return;
         li.classList.toggle('done', !!r.task.done_at);
@@ -534,17 +606,40 @@
         if (r.task.done_at) { inkSplash(li); sound.strum(); }
         renderStreak(); renderStats();
         if (r.streakUp) popStreak();
-        if (!matchesFilter(r.task)) {
+        if (inPrio || !matchesFilter(r.task)) {
+          // let the tick and the ink show, then tidy the list (done priorities move below open ones)
           const delay = reducedMotion() ? 0 : 750;
-          setTimeout(() => { if (!reducedMotion()) li.classList.add('fade-out'); setTimeout(() => renderList(), reducedMotion() ? 0 : 420); }, delay);
+          setTimeout(() => {
+            if (!inPrio && !reducedMotion()) li.classList.add('fade-out');
+            setTimeout(() => renderList(), inPrio || reducedMotion() ? 0 : 420);
+          }, delay);
         } else renderFooter();
+      } else if (e.target.closest('.task-prio')) {
+        const r = await togglePriority(id);
+        if (r && r.full) return toast('Top Priorities holds six. Finish one, or move one back first ✒️');
+        render(id);
       } else if (e.target.closest('.task-del')) {
         await deleteTask(id);
         if (reducedMotion()) { render(); return; }
         li.classList.add('leaving');
         setTimeout(render, 430);
       }
-    });
+    };
+    els.list.addEventListener('click', onListClick);
+    els.prioList.addEventListener('click', onListClick);
+
+    // Notes & Ideas / Important Reminders: save shortly after typing stops, and straight away on leaving the box.
+    for (const [kind, el, saved] of [['notes', els.notesText, els.notesSaved], ['reminders', els.remindText, els.remindSaved]]) {
+      let timer = null, hide = null;
+      const save = async () => {
+        clearTimeout(timer); timer = null;
+        await setNote(kind, el.value);
+        saved.textContent = 'Saved ✓'; saved.classList.add('on');
+        clearTimeout(hide); hide = setTimeout(() => saved.classList.remove('on'), 1600);
+      };
+      el.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(save, 600); });
+      el.addEventListener('blur', () => { if (timer) save(); else renderNotes(); });
+    }
 
     $$('.ftab').forEach(b => b.addEventListener('click', () => setFilter(b.dataset.filter)));
     els.clear.addEventListener('click', async () => {
@@ -579,6 +674,9 @@
   async function boot() {
     Object.assign(els, {
       form: $('#addForm'), input: $('#taskInput'), list: $('#taskList'), empty: $('#emptyState'),
+      prioForm: $('#prioForm'), prioInput: $('#prioInput'), prioList: $('#prioList'), prioHint: $('#prioHint'),
+      notesText: $('#notesText'), remindText: $('#remindText'), notesSaved: $('#notesSaved'), remindSaved: $('#remindSaved'),
+      jMonth: $('#jMonth'), jDate: $('#jDate'),
       left: $('#leftCount'), clear: $('#clearDone'), card: $('#streakCard'), streakNum: $('#streakNum'),
       streakUnit: $('#streakUnit'), streakMsg: $('#streakMsg'), best: $('#bestNum'), heroStreak: $('#heroStreak'), heroStreakText: $('#heroStreakText'),
       statToday: $('#statToday'), statDays: $('#statDays'), statPct: $('#statPct'), vu: $('#vuMeter'),
@@ -588,9 +686,10 @@
     $('#appVersion').textContent = APP_VERSION;
 
     await store.init();
-    const [tasks, log, settings] = await Promise.all([store.allTasks(), store.get('log', {}), store.get('settings', null)]);
+    const [tasks, log, settings, notes] = await Promise.all([store.allTasks(), store.get('log', {}), store.get('settings', null), store.get('notes', null)]);
     state.tasks = tasks || [];
     state.log = log || {};
+    if (notes) NOTE_KINDS.forEach(k => { if (notes[k] && typeof notes[k].body === 'string') state.notes[k] = notes[k]; });
     if (settings) Object.assign(state.settings, settings);
     else { try { const t = localStorage.getItem('hustl:theme'); if (t) state.settings.theme = t; } catch {} }
     sortTasks();
@@ -610,7 +709,7 @@
 
   /* Public API for sync.js / chat.js (and debugging). */
   window.Hustl = {
-    version: APP_VERSION, store, state, toast, render, mergeData, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
+    version: APP_VERSION, store, state, toast, render, mergeData, mergeNotes, setNote, togglePriority, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
     streakInfo, currentStreak, bestStreak,
     on: fn => { listeners.add(fn); return () => listeners.delete(fn); },
     ready: new Promise(res => addEventListener('hustl:ready', res, { once: true })),

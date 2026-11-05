@@ -93,6 +93,17 @@ the first time (**Sign in** after that, on any device) → the **ON AIR** light 
 | Amber "Syncing" / "Queued" | Changes are being sent |
 | Grey "Offline" / "Local" / "Paused" | Saved on this device; it will sync when it can |
 
+## The Daily Track page (Tasks tab)
+A leather-bound journal page with today's **Month** and **Date** filled in, and four sections:
+- **Tasks to Complete:** write on the *Write a list item…* line and press Enter. Tick the box when it's done
+  (it counts towards your daily streak). Filter with *To do / Done / All*.
+- **Top Priorities:** up to six. Write on its own line, or tap ⚡ on any task to move it up (tap again to move it back).
+- **Notes & Ideas** and **Important Reminders:** free-writing boxes, saved as you type.
+
+Everything is saved on the device first and synced to your other devices (priorities and notes need
+`supabase-update.sql` on projects set up before version 2.4; until then they stay on the device).
+Your vinyl streak record, stats and 7-day meter sit below the page.
+
 ## How sync works
 - Every change is saved on the device instantly and added to an outbox.
 - The outbox is sent when you come back online, every 60 seconds, when you return to the app, and shortly after each change.
@@ -141,6 +152,7 @@ npm test
 - `tests/sync.mjs`: sign-in and two-device sync, offline queue and conflicts (using an in-memory fake Supabase).
 - `tests/social.mjs`: User IDs, display names, Add friend, Follow back and unfollow between two people.
 - `tests/chat.mjs`: chat between friends: live delivery, unread badges, read receipts, offline outbox, saved chats, the follow-each-other lock, and photos (webcam, phone camera, shrinking, offline, 7-day clean-up).
+- `tests/journal.mjs`: the Daily Track page: Month/Date, top priorities (max 6), notes and reminders saving and syncing, and an older database without the update.
 - `tests/version.mjs`: one version number in every file, so browsers never mix old and new files.
 
 ## Releasing an update

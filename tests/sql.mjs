@@ -184,6 +184,24 @@ for (let i = 1; i <= 50; i++) await followAs(P(i), POP);   // 50 followers
 ok((await db.query(`select count(*)::int as n from public.follows where followee_id = $1`, [POP])).rows[0].n === 50, 'someone can have 50 followers');
 ok(/follower limit/.test((await followAs(P(53), POP)).error || ''), 'a 51st follower is refused ("already has 50 followers")');
 
+console.log('\n▶ Daily Track: priorities, notes and reminders');
+const PT = '77777777-7777-4777-8777-777777777777';
+await as(U1, `insert into public.tasks (id, user_id, text, created_at, updated_at) values ('${PT}', '${U1}', 'Ship it', now(), now())`);
+ok((await as(U1, `select priority from public.tasks where id = '${PT}'`)).rows[0]?.priority === false, 'tasks are not priorities unless marked');
+await as(U1, `update public.tasks set priority = true, updated_at = now() + interval '1 second' where id = '${PT}'`);
+ok((await as(U1, `select priority from public.tasks where id = '${PT}'`)).rows[0]?.priority === true, 'a task can be marked as a Top Priority');
+const note = (uid, kind, body, at) => as(uid, `insert into public.notes (user_id, kind, body, updated_at) values ($1, $2, $3, $4)
+  on conflict (user_id, kind) do update set body = excluded.body, updated_at = excluded.updated_at`, [uid, kind, body, at]);
+ok(!(await note(U1, 'notes', 'Idea: vinyl stickers', '2026-11-05T10:00:00Z')).error, 'you can save Notes & Ideas');
+ok(!(await note(U1, 'reminders', 'Call mum at 6', '2026-11-05T10:00:00Z')).error, 'and Important Reminders');
+ok((await as(U2, `select * from public.notes`)).rows.length === 0, "nobody else can read your notes");
+ok(!!(await note(U2, 'notes', 'x', '2026-11-05T10:00:00Z')).error === false && (await as(U1, `select body from public.notes where kind = 'notes'`)).rows[0].body === 'Idea: vinyl stickers', "others' notes are separate from yours");
+ok(!!(await as(U2, `insert into public.notes (user_id, kind, body, updated_at) values ('${U1}', 'notes', 'hacked', now())`)).error, "you can't write someone else's notes");
+await note(U1, 'notes', 'older edit', '2026-11-05T09:00:00Z');
+ok((await as(U1, `select body from public.notes where kind = 'notes'`)).rows[0].body === 'Idea: vinyl stickers', 'an older edit arriving late does not overwrite a newer one');
+ok(!!(await note(U1, 'shopping', 'x', '2026-11-05T11:00:00Z')).error, 'only "notes" and "reminders" are allowed');
+ok(!!(await note(U1, 'notes', 'x'.repeat(5001), '2026-11-05T11:00:00Z')).error, 'notes are limited to 5000 characters');
+
 console.log('\n▶ storage (chat-media)');
 const bucket = (await db.query(`select public from storage.buckets where id = 'chat-media'`)).rows[0];
 ok(bucket && bucket.public === false, 'chat-media bucket exists and is private');
@@ -204,7 +222,7 @@ await as(U2, `delete from public.follows where follower_id = '${U2}' and followe
 ok((await as(U1, `delete from storage.objects where name = '${U1}/${U2}/a.jpg'`)).affected === 1, 'you can delete your own photo, even after an unfollow');
 
 const pub = (await db.query(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`)).rows.map(r => r.tablename);
-ok(['completion_log', 'messages', 'tasks'].every(t => pub.includes(t)), 'tasks, streak log and messages send live updates');
+ok(['completion_log', 'messages', 'notes', 'tasks'].every(t => pub.includes(t)), 'tasks, streak log, notes and messages send live updates');
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

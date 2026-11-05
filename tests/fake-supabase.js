@@ -31,7 +31,7 @@
       function from(table) {
         const q = { table, op: 'select', filters: [], limit: null };
         const b = {
-          select() { if (q.op === 'select') q.op = 'select'; return b; },
+          select(cols) { if (q.op === 'select') { q.op = 'select'; q.columns = cols; } return b; },
           gt(col, val) { q.filters.push(['gt', col, val]); return b; },
           eq(col, val) { q.filters.push(['eq', col, val]); return b; },
           is(col, val) { q.filters.push(['is', col, val]); return b; },

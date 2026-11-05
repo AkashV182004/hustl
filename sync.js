@@ -1,7 +1,8 @@
 /* Hustl — sign-in (username + password) and offline-first sync with Supabase.
    The app never waits for the network: every change is saved locally first, queued in an outbox,
    and pushed when online (on the "online" event, every 60s, on focus, and shortly after each change).
-   Tasks: last write wins by updated_at (the server enforces it too). Completion log: larger count per day wins. */
+   Tasks: last write wins by updated_at (the server enforces it too). Completion log: larger count per day wins.
+   Daily Track notes (Notes & Ideas, Important Reminders): last write wins by updated_at, like tasks. */
 (() => {
   'use strict';
   const $ = s => document.querySelector(s);
@@ -24,6 +25,11 @@
   let session = null;
   let syncing = false, again = false, lastError = null, lastSync = null;
   let debounce = null;
+  // Set when the database doesn't have the Daily Track additions yet (supabase-update.sql not run):
+  // priorities and notes then stay on this device, and everything else keeps syncing.
+  let noPriorityColumn = false, noNotesTable = false;
+  const missingColumn = e => e && (e.code === '42703' || e.code === 'PGRST204' || /priority/.test(e.message || ''));
+  const missingTable = e => e && (e.code === '42P01' || e.code === 'PGRST205' || /notes/.test(e.message || '') && /not find|does not exist/.test(e.message || ''));
   let live = null;          // Realtime channel: tells this device the moment another device saves
   const outbox = new Set(); // ids of tasks changed locally and not yet pushed
 
@@ -72,8 +78,11 @@
 
   /* ---------------- Sync ---------------- */
   const iso = v => (v ? new Date(v).toISOString() : null); // Postgres "+00:00" → JS "Z" so comparisons are exact
-  const fromRow = r => ({ id: r.id, text: r.text, created_at: iso(r.created_at), done_at: iso(r.done_at), updated_at: iso(r.updated_at), deleted: !!r.deleted });
-  const toRow = (t, uid) => ({ id: t.id, user_id: uid, text: t.text, created_at: t.created_at, done_at: t.done_at, updated_at: t.updated_at, deleted: !!t.deleted });
+  const fromRow = r => ({ id: r.id, text: r.text, created_at: iso(r.created_at), done_at: iso(r.done_at), updated_at: iso(r.updated_at), deleted: !!r.deleted,
+    ...(r.priority === undefined ? {} : { priority: !!r.priority }) });
+  const toRow = (t, uid) => ({ id: t.id, user_id: uid, text: t.text, created_at: t.created_at, done_at: t.done_at, updated_at: t.updated_at, deleted: !!t.deleted,
+    ...(noPriorityColumn ? {} : { priority: !!t.priority }) });
+  const TASK_COLS = () => 'id,text,created_at,done_at,updated_at,deleted,server_updated_at' + (noPriorityColumn ? '' : ',priority');
 
   async function syncNow() {
     if (!sb || !session || !navigator.onLine) { updateAir(); renderAccount(); return; }
@@ -94,9 +103,10 @@
       // 1) Pull tasks that changed on the server since our cursor.
       let since = cursor ? new Date(new Date(cursor).getTime() - PULL_OVERLAP_MS).toISOString() : '1970-01-01T00:00:00.000Z';
       for (;;) {
-        const { data, error } = await sb.from('tasks')
-          .select('id,text,created_at,done_at,updated_at,deleted,server_updated_at')
+        let { data, error } = await sb.from('tasks')
+          .select(TASK_COLS())
           .gt('server_updated_at', since).order('server_updated_at', { ascending: true }).limit(PAGE);
+        if (error && !noPriorityColumn && missingColumn(error)) { noPriorityColumn = true; continue; }
         if (error) throw error;
         if (data.length) {
           await H.mergeData({ tasks: data.map(fromRow) });
@@ -111,7 +121,12 @@
       const byId = new Map(H.state.tasks.map(t => [t.id, t]));
       const rows = ids.map(id => byId.get(id)).filter(Boolean).map(t => toRow(t, uid));
       for (let i = 0; i < rows.length; i += PAGE) {
-        const { error } = await sb.from('tasks').upsert(rows.slice(i, i + PAGE), { onConflict: 'id' });
+        let { error } = await sb.from('tasks').upsert(rows.slice(i, i + PAGE), { onConflict: 'id' });
+        if (error && !noPriorityColumn && missingColumn(error)) {
+          noPriorityColumn = true;
+          rows.forEach(r => { delete r.priority; });
+          ({ error } = await sb.from('tasks').upsert(rows.slice(i, i + PAGE), { onConflict: 'id' }));
+        }
         if (error) throw error;
       }
       ids.forEach(id => outbox.delete(id));
@@ -129,6 +144,24 @@
       if (upLog.length) {
         const { error } = await sb.from('completion_log').upsert(upLog, { onConflict: 'user_id,day' });
         if (error) throw error;
+      }
+
+      // 4) Daily Track notes: newer side wins, both ways.
+      if (!noNotesTable) {
+        const { data: noteRows, error: nErr } = await sb.from('notes').select('kind,body,updated_at');
+        if (nErr && missingTable(nErr)) noNotesTable = true;
+        else if (nErr) throw nErr;
+        else {
+          await H.mergeNotes(noteRows);
+          const remote = Object.fromEntries(noteRows.map(r => [r.kind, iso(r.updated_at)]));
+          const up = Object.entries(H.state.notes)
+            .filter(([kind, n]) => n.updated_at && (!remote[kind] || n.updated_at > remote[kind]))
+            .map(([kind, n]) => ({ user_id: uid, kind, body: n.body, updated_at: n.updated_at }));
+          if (up.length) {
+            const { error } = await sb.from('notes').upsert(up, { onConflict: 'user_id,kind' });
+            if (error) throw error;
+          }
+        }
       }
 
       if (cursor) await H.store.set(cursorKey, cursor);
@@ -208,9 +241,11 @@
       if (!t || iso(r.updated_at) !== t.updated_at) schedule(150);
     };
     const onLog = ({ new: r }) => { if (!r || (H.state.log[r.day] || 0) < r.count) schedule(150); };
+    const onNote = ({ new: r }) => { const n = r && H.state.notes[r.kind]; if (!n || iso(r.updated_at) !== n.updated_at) schedule(150); };
     live = sb.channel('hustl-sync-' + session.user.id)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter }, onTask)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'completion_log', filter }, onLog)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter }, onNote)
       // Catch anything missed while connecting, unless a sync has only just finished.
       .subscribe(status => { if (status === 'SUBSCRIBED' && (!lastSync || Date.now() - Date.parse(lastSync) > 5000)) schedule(150); });
   }
@@ -248,7 +283,7 @@
     // Queue every local change.
     H.on((type, detail) => {
       if (type === 'tasks') { detail.forEach(t => outbox.add(t.id)); saveOutbox(); updateAir(); schedule(); }
-      else if (type === 'log') schedule();
+      else if (type === 'log' || type === 'notes') schedule();
     });
 
     if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) {

@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-title" content="To-Do">
   <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/playfair.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.3.0">
+  <link rel="stylesheet" href="styles.css?v=2.4.0">
   <script>
     // Apply the saved theme before first paint to avoid a flash.
     try { var t = localStorage.getItem('hustl:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
@@ -37,7 +37,11 @@
       <linearGradient id="headshell" x1="0" x2="1" y1="0" y2="1">
         <stop offset="0" stop-color="#3a3532"/><stop offset="1" stop-color="#121010"/>
       </linearGradient>
-    </defs>
+    
+      <symbol id="laurel" viewBox="0 0 64 40"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M62 30C46 32 26 26 6 8"/></g><g fill="currentColor"><ellipse cx="14" cy="11" rx="5" ry="2" transform="rotate(30 14 11)"/><ellipse cx="22" cy="17" rx="5.5" ry="2.2" transform="rotate(28 22 17)"/><ellipse cx="31" cy="22" rx="6" ry="2.3" transform="rotate(22 31 22)"/><ellipse cx="41" cy="26" rx="6" ry="2.3" transform="rotate(14 41 26)"/><ellipse cx="51" cy="28.5" rx="6" ry="2.2" transform="rotate(8 51 28.5)"/><ellipse cx="17" cy="7" rx="5" ry="1.9" transform="rotate(-25 17 7)"/><ellipse cx="26" cy="12" rx="5.5" ry="2" transform="rotate(-18 26 12)"/><ellipse cx="36" cy="17" rx="6" ry="2.1" transform="rotate(-12 36 17)"/><ellipse cx="46" cy="21" rx="6" ry="2.1" transform="rotate(-6 46 21)"/></g></symbol>
+      <symbol id="flourish" viewBox="0 0 300 14"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M10 7h112M178 7h112"/><path d="M122 7c8-8 18-8 22 0-4 8-14 8-22 0zM178 7c-8-8-18-8-22 0 4 8 14 8 22 0z"/></g><path fill="currentColor" d="M150 2l5 5-5 5-5-5z"/></symbol>
+      <symbol id="quill" viewBox="0 0 90 90"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M30 70C40 46 58 22 84 6 76 30 60 52 34 70"/><path d="M38 62l18-24M44 56l8-2M50 48l9-3M57 39l9-4"/><path d="M30 70l-4 8"/></g><g fill="currentColor"><path d="M12 72h22l-2 12H14z" opacity=".85"/><rect x="15" y="68" width="16" height="5" rx="1.5"/><path d="M4 86h44" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></g></symbol>
+</defs>
   </svg>
 
   <div class="app">
@@ -93,7 +97,76 @@
 
       <!-- ============ TASKS ============ -->
       <section id="screen-tasks" class="screen tasks-screen" aria-label="Tasks">
-        <div class="col col-left">
+        <article class="journal" aria-labelledby="journalTitle">
+          <div class="j-page">
+            <header class="j-head">
+              <div class="j-titlerow">
+                <svg class="j-laurel" viewBox="0 0 64 40" aria-hidden="true"><use href="#laurel"/></svg>
+                <h2 class="j-title" id="journalTitle">Daily Track</h2>
+                <svg class="j-laurel flip" viewBox="0 0 64 40" aria-hidden="true"><use href="#laurel"/></svg>
+              </div>
+              <svg class="j-rule" viewBox="0 0 300 14" aria-hidden="true"><use href="#flourish"/></svg>
+              <div class="j-dateline">
+                <p class="j-field"><span class="j-label">Month</span><span class="j-value" id="jMonth"></span></p>
+                <p class="j-field"><span class="j-label">Date</span><span class="j-value" id="jDate"></span></p>
+              </div>
+            </header>
+
+            <div class="j-grid">
+              <section class="j-panel j-tasks" aria-labelledby="tasksLabel">
+                <h3 class="j-plate" id="tasksLabel">Tasks to Complete</h3>
+                <div class="segmented j-filters" role="tablist" aria-label="Filter tasks">
+                  <button role="tab" class="ftab" data-filter="active" aria-selected="true">To do</button>
+                  <button role="tab" class="ftab" data-filter="done" aria-selected="false">Done</button>
+                  <button role="tab" class="ftab" data-filter="all" aria-selected="false">All</button>
+                </div>
+                <ul class="task-list j-lines" id="taskList" aria-live="polite"></ul>
+                <form class="j-add" id="addForm" autocomplete="off">
+                  <span class="j-box" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="box" d="M4.5 4.5h15v15h-15z"/><path class="tick" d="M7.5 12.5l3.2 3.2 6.3-7.4"/></svg></span>
+                  <label for="taskInput" class="sr-only">New task</label>
+                  <input id="taskInput" class="j-input" type="text" maxlength="500" placeholder="Write a list item…" enterkeyhint="done">
+                  <button class="j-addbtn" type="submit" aria-label="Add task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                </form>
+                <p class="empty" id="emptyState" hidden>Quiet page… write your first task above ✒️</p>
+                <div class="j-fill" aria-hidden="true"></div>
+                <footer class="list-foot">
+                  <span id="leftCount">0 tasks left</span>
+                  <button class="btn ghost small" id="clearDone">Clear completed</button>
+                </footer>
+              </section>
+
+              <div class="j-side">
+                <section class="j-panel j-prio" aria-labelledby="prioLabel">
+                  <h3 class="j-plate" id="prioLabel">Top Priorities <svg class="j-ico bolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2L5 13.5h6L9.5 22 19 9.5h-6.2z"/></svg></h3>
+                  <ul class="task-list j-lines" id="prioList" aria-live="polite"></ul>
+                  <form class="j-add" id="prioForm" autocomplete="off">
+                    <span class="j-box" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="box" d="M4.5 4.5h15v15h-15z"/><path class="tick" d="M7.5 12.5l3.2 3.2 6.3-7.4"/></svg></span>
+                    <label for="prioInput" class="sr-only">New top priority</label>
+                    <input id="prioInput" class="j-input" type="text" maxlength="500" placeholder="Add a top priority…" enterkeyhint="done">
+                    <button class="j-addbtn" type="submit" aria-label="Add top priority"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                  </form>
+                  <p class="j-hint" id="prioHint">Tap ⚡ on any task to make it a top priority (up to 6).</p>
+                </section>
+
+                <section class="j-panel j-notes" aria-labelledby="notesLabel">
+                  <h3 class="j-plate" id="notesLabel">Notes &amp; Ideas</h3>
+                  <textarea id="notesText" class="j-text" maxlength="5000" aria-labelledby="notesLabel" placeholder="Jot down notes and ideas…"></textarea>
+                  <svg class="j-quill" viewBox="0 0 90 90" aria-hidden="true"><use href="#quill"/></svg>
+                  <span class="j-saved" id="notesSaved" aria-live="polite"></span>
+                </section>
+
+                <section class="j-panel j-remind" aria-labelledby="remindLabel">
+                  <h3 class="j-plate plain" id="remindLabel">Important Reminders <svg class="j-ico bell" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a5.5 5.5 0 0 0-5.5 5.5v4L4.5 16.5h15L17.5 13V9A5.5 5.5 0 0 0 12 3.5z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg></h3>
+                  <textarea id="remindText" class="j-text" maxlength="5000" aria-labelledby="remindLabel" placeholder="Things you mustn’t forget…"></textarea>
+                  <span class="j-saved" id="remindSaved" aria-live="polite"></span>
+                </section>
+              </div>
+            </div>
+          </div>
+          <span class="j-strap" aria-hidden="true"></span>
+        </article>
+
+        <div class="record-shelf">
           <article class="streak-card" id="streakCard" data-state="lost" aria-labelledby="streakTitle">
             <div class="deck">
               <div class="platter">
@@ -141,30 +214,6 @@
             <figcaption id="vuCap"><span>Last 7 days</span><span class="vu-brand" aria-hidden="true">VU · Hi-Fi</span></figcaption>
             <div class="vu-meter" id="vuMeter" role="img" aria-label="Tasks completed in the last 7 days"></div>
           </figure>
-        </div>
-
-        <div class="col col-right">
-          <form class="add-bar" id="addForm" autocomplete="off">
-            <label for="taskInput" class="sr-only">New task</label>
-            <input id="taskInput" class="add-input" type="text" maxlength="500" placeholder="Write a new track…" enterkeyhint="done">
-            <button class="add-btn" type="submit" aria-label="Add task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="add-word">Add</span></button>
-          </form>
-
-          <div class="list-card">
-            <div class="list-head">
-              <div class="segmented" role="tablist" aria-label="Filter tasks">
-                <button role="tab" class="ftab" data-filter="active" aria-selected="true">Active</button>
-                <button role="tab" class="ftab" data-filter="done" aria-selected="false">Done</button>
-                <button role="tab" class="ftab" data-filter="all" aria-selected="false">All</button>
-              </div>
-            </div>
-            <ul class="task-list" id="taskList" aria-live="polite"></ul>
-            <p class="empty" id="emptyState" hidden>Quiet room… add your first track 🎸</p>
-            <footer class="list-foot">
-              <span id="leftCount">0 tasks left</span>
-              <button class="btn ghost small" id="clearDone">Clear completed</button>
-            </footer>
-          </div>
         </div>
       </section>
 
@@ -414,11 +463,11 @@
     </div>
   </div>
 
-  <script src="config.js?v=2.3.0"></script>
+  <script src="config.js?v=2.4.0"></script>
   <script src="vendor/supabase.js" defer></script>
-  <script src="app.js?v=2.3.0" defer></script>
-  <script src="sync.js?v=2.3.0" defer></script>
-  <script src="chat.js?v=2.3.0" defer></script>
-  <script src="lock.js?v=2.3.0" defer></script>
+  <script src="app.js?v=2.4.0" defer></script>
+  <script src="sync.js?v=2.4.0" defer></script>
+  <script src="chat.js?v=2.4.0" defer></script>
+  <script src="lock.js?v=2.4.0" defer></script>
 </body>
 </html>

@@ -11,7 +11,7 @@ const WEEK = 7 * 24 * 60 * 60 * 1000;
 const pg = v => (v ? new Date(v).toISOString().replace('Z', '+00:00') : v); // Postgres-style timestamps
 
 export function createFakeServer() {
-  const db = { users: new Map(), profiles: new Map(), tasks: new Map(), log: new Map(), follows: [], messages: [], files: new Map() };
+  const db = { users: new Map(), profiles: new Map(), tasks: new Map(), log: new Map(), notes: new Map(), follows: [], messages: [], files: new Map() };
   const subscribers = new Set();
   const emit = (table, eventType, row) => subscribers.forEach(fn => fn({ table, eventType, new: { ...row } }));
   let clock = 0;
@@ -98,6 +98,9 @@ export function createFakeServer() {
 
     const { table, filters = [] } = p;
     if (table === 'tasks') {
+      if (api.oldSchema && (/priority/.test(p.columns || '') || (p.rows || []).some(r => 'priority' in r))) {
+        return { error: { code: 'PGRST204', message: "Could not find the 'priority' column of 'tasks' in the schema cache" } };
+      }
       if (p.op === 'select') {
         let rows = [...db.tasks.values()].filter(r => r.user_id === uid && match(r, filters));
         rows.sort((a, b) => a.server_updated_at.localeCompare(b.server_updated_at));
@@ -111,6 +114,22 @@ export function createFakeServer() {
           if (ex && new Date(r.updated_at) < new Date(ex.updated_at)) continue; // last write wins
           db.tasks.set(r.id, { ...r, server_updated_at: tick() });
           emit('tasks', 'UPDATE', db.tasks.get(r.id));
+        }
+        return { data: null };
+      }
+    }
+    // Daily Track notes (supabase.sql "notes" table). api.oldSchema = a database from before that update.
+    if (table === 'notes') {
+      if (api.oldSchema) return { error: { code: 'PGRST205', message: "Could not find the table 'public.notes' in the schema cache" } };
+      if (p.op === 'select') return { data: [...db.notes.values()].filter(r => r.user_id === uid).map(({ kind, body, updated_at }) => ({ kind, body, updated_at: pg(updated_at) })) };
+      if (p.op === 'upsert') {
+        for (const r of p.rows) {
+          if (r.user_id !== uid) return rls;
+          if (!['notes', 'reminders'].includes(r.kind) || String(r.body).length > 5000) return { error: { code: '23514', message: 'check constraint' } };
+          const k = uid + ':' + r.kind, ex = db.notes.get(k);
+          if (ex && new Date(r.updated_at) < new Date(ex.updated_at)) continue;   // last write wins
+          db.notes.set(k, { user_id: uid, kind: r.kind, body: r.body, updated_at: r.updated_at });
+          emit('notes', 'UPDATE', db.notes.get(k));
         }
         return { data: null };
       }
@@ -193,6 +212,6 @@ export function createFakeServer() {
 
   // Test helper: a profile with no account behind it (for filling up follow lists).
   const addPerson = () => { const id = randomUUID(); newProfile(id); return id; };
-  const api = { db, handle, addPerson, down: false, subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn); } };
+  const api = { db, handle, addPerson, down: false, oldSchema: false, subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn); } };
   return api;
 }

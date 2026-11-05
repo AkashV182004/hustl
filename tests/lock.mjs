@@ -46,10 +46,10 @@ for (const combo of [
   ok(await page.locator('#screen-tasks').isVisible(), 'app opens on the Tasks screen');
   ok(!(await page.locator('html').getAttribute('class') || '').includes('locked'), 'no lock screen when the lock is off');
   if (combo.name === 'mobile') {
-    const list = await page.locator('.list-card').boundingBox();
+    const list = await page.locator('.journal').boundingBox();
     const streak = await page.locator('#streakCard').boundingBox();
-    ok(list.y < streak.y, 'on phones the task list comes before the turntable');
-    ok(list.y < 844, 'the task list is visible on the first screen');
+    ok(list.y < streak.y, 'on phones the Daily Track page comes before the turntable');
+    ok(list.y < 844, 'the Daily Track page is visible on the first screen');
     ok(await page.locator('#heroStreak').isVisible(), 'header shows the streak chip on phones');
     await page.screenshot({ path: path.join(shots, 'mobile-light-4-list-first.png') });
   }
