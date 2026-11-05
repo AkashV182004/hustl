@@ -1,6 +1,6 @@
 /* Hustl service worker — cache-first app shell, versioned cache.
    Bump VERSION on every deploy so clients pick up the new files (and the ?v= tags in index.html: tests/version.mjs checks they match). */
-const VERSION = 'hustl-v2.5.0';
+const VERSION = 'hustl-v2.5.1';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './sync.js', './chat.js', './lock.js', './config.js',
   './manifest.webmanifest', './vendor/supabase.js',

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '2.5.0';
+  const APP_VERSION = '2.5.1';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -191,7 +191,14 @@
     for (const r of rows) {
       if (!r || !NOTE_KINDS.includes(r.kind) || typeof r.body !== 'string' || !r.updated_at) continue;
       const at = new Date(r.updated_at).toISOString(), local = state.notes[r.kind];
-      if (!local.updated_at || at > local.updated_at) { state.notes[r.kind] = { body: r.body.slice(0, 5000), updated_at: at }; changed = true; }
+      if (!local.updated_at || at > local.updated_at) {
+        if (r.kind === 'reminders' && Date.now() - Date.parse(at) < RECENT_MS) {
+          const had = new Set(local.body.split('\n').map(l => l.trim()));
+          const added = r.body.split('\n').map(l => l.trim()).filter(l => l && !had.has(l));
+          if (added.length) notifyAdded('📝 Important Reminders', added.slice(0, 3).join('\n'), 'reminders-text', `📝 Added to Important Reminders: ${added[0]}`);
+        }
+        state.notes[r.kind] = { body: r.body.slice(0, 5000), updated_at: at }; changed = true;
+      }
     }
     if (changed) { await store.set('notes', state.notes); renderNotes(); }
     return changed;
@@ -222,6 +229,7 @@
     await saveAlarms();
     emit('alarms', [a]);
     renderAlarms(); scheduleAlarms();
+    notifyAdded('⏰ Reminder set', `${a.text}\n${fmtAlarmTime(a.due_at)}`, 'alarm-set-' + a.id);
     return { alarm: a };
   }
 
@@ -242,12 +250,16 @@
   async function mergeAlarms(rows = []) {
     const byId = new Map(state.alarms.map(a => [a.id, a]));
     let changed = false;
+    const arrived = [];
     for (const r of rows) {
       if (!r || typeof r.id !== 'string' || typeof r.text !== 'string' || !r.due_at || !r.updated_at) continue;
       const clean = { id: r.id, text: r.text.slice(0, 200), due_at: new Date(r.due_at).toISOString(), done_at: r.done_at ? new Date(r.done_at).toISOString() : null,
         deleted: !!r.deleted, updated_at: new Date(r.updated_at).toISOString() };
       const local = byId.get(clean.id);
-      if (!local) { state.alarms.push(clean); byId.set(clean.id, clean); changed = true; }
+      if (!local) {
+        state.alarms.push(clean); byId.set(clean.id, clean); changed = true;
+        if (!clean.done_at && !clean.deleted && Date.parse(clean.due_at) > Date.now() && Date.now() - Date.parse(clean.updated_at) < RECENT_MS) arrived.push(clean);
+      }
       else if (clean.updated_at > local.updated_at) { Object.assign(local, clean); changed = true; }
     }
     if (changed) {
@@ -255,6 +267,9 @@
       // a reminder dismissed on another device stops ringing here too
       if (ringing) { const a = byId.get(ringing); if (!a || a.done_at || a.deleted || ringKey(a) !== els.alarmDlg.dataset.key) closeAlarm(); }
       renderAlarms(); scheduleAlarms();
+      for (const a of arrived.slice(0, 3)) {
+        notifyAdded('⏰ New reminder', `${a.text}\n${fmtAlarmTime(a.due_at)}`, 'alarm-new-' + a.id, `⏰ New reminder: ${a.text} · ${fmtAlarmTime(a.due_at)}`);
+      }
     }
     return changed;
   }
@@ -308,17 +323,29 @@
     setTimeout(showNextAlarm, 0);
   }
 
-  async function notifyAlarm(a, missed) {
+  // A system notification (when the person has allowed them). alarmId adds Snooze / Done buttons.
+  async function systemNotify(title, body, { tag, alarmId = null, sticky = false } = {}) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    if (document.visibilityState === 'visible' && document.hasFocus()) return;   // the pop-up is already in front of you
-    const title = missed ? 'Missed reminder' : '⏰ Reminder';
-    const opts = { body: `${a.text}\n${fmtAlarmTime(a.due_at)}`, tag: 'alarm-' + a.id, renotify: true, requireInteraction: true,
-      icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', data: { alarm: a.id } };
+    const opts = { body, tag, renotify: true, requireInteraction: sticky, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
+      data: alarmId ? { alarm: alarmId } : {} };
     try {
       const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
-      if (reg) return await reg.showNotification(title, { ...opts, actions: [{ action: 'snooze', title: `Snooze ${SNOOZE_MIN} min` }, { action: 'done', title: 'Done' }] });
+      if (reg) return await reg.showNotification(title, alarmId
+        ? { ...opts, actions: [{ action: 'snooze', title: `Snooze ${SNOOZE_MIN} min` }, { action: 'done', title: 'Done' }] } : opts);
     } catch {}
     try { const n = new Notification(title, opts); n.onclick = () => { window.focus(); n.close(); }; } catch {}
+  }
+
+  function notifyAlarm(a, missed) {
+    if (document.visibilityState === 'visible' && document.hasFocus()) return;   // the pop-up is already in front of you
+    systemNotify(missed ? 'Missed reminder' : '⏰ Reminder', `${a.text}\n${fmtAlarmTime(a.due_at)}`, { tag: 'alarm-' + a.id, alarmId: a.id, sticky: true });
+  }
+
+  // Something new in Important Reminders: say so (here, or when it arrives from another device).
+  const RECENT_MS = 10 * 60 * 1000;   // only things added in the last few minutes, not old ones arriving at sign-in
+  function notifyAdded(title, body, tag, inApp) {
+    if (inApp) toast(inApp);
+    systemNotify(title, body, { tag });
   }
 
   // A soft three-note bell, three times. Alarms ring even with sound effects switched off.
@@ -788,7 +815,8 @@
       if (!t) { input.focus(); return; }
       if (state.filter === 'done') setFilter('active', false);
       render(t.id);
-      input.focus();
+      // ready for the next one, unless you've already moved on to another box
+      if (document.activeElement === document.body || form.contains(document.activeElement)) input.focus();
     });
     onAdd(els.form, els.input, {});
     onAdd(els.prioForm, els.prioInput, { priority: true });
@@ -846,11 +874,11 @@
     els.alarmForm.addEventListener('submit', async e => {
       e.preventDefault();
       if (!els.alarmText.value.trim()) { els.alarmText.focus(); return toast('What should we remind you about?'); }
+      await askNotifications();   // the first reminder is a good moment to ask (it needs a tap)
       const r = await addAlarm(els.alarmText.value, els.alarmAt.value);
       if (r.error) return toast(r.error);
       els.alarmText.value = '';
       toast(`⏰ Alarm set for ${fmtAlarmTime(r.alarm.due_at)}`);
-      askNotifications();   // the first alarm is a good moment to ask (it needs a tap)
     });
     els.alarmText.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); els.alarmForm.requestSubmit(); } });
     els.alarmAllow.addEventListener('click', askNotifications);

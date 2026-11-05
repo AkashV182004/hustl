@@ -103,6 +103,8 @@ A leather-bound journal page with today's **Month** and **Date** filled in, and 
   rings: a chime, a vibration on phones, a pop-up with **Snooze 10 min** / **Done**, and a system notification if you
   tap *Allow notifications*. Reminders sync between your devices; *Done* on one stops it ringing on the others.
   A reminder missed in the last day rings the next time you open the app. Below it is a free box for other notes.
+  Adding a reminder sends a **"Reminder set"** notification; your other devices get a **"New reminder"** notification
+  (also for new lines in the free reminders box).
   *Limit:* a web app can only ring while it's open or running in the background, not when it's fully closed.
 
 Everything is saved on the device first and synced to your other devices (priorities and notes need

@@ -45,6 +45,7 @@ await A.page.click('.alarm-set');
 ok(await until(A.page, () => [...document.querySelectorAll('#alarmList .alarm-main b')].some(b => b.textContent === 'Call the venue')), 'the reminder is listed');
 ok((await A.page.locator('#alarmList .alarm', { hasText: 'Call the venue' }).locator('time').textContent()).includes('in 2 hours'), 'with its date, time and "in 2 hours"');
 ok(await A.page.locator('.toast', { hasText: 'Alarm set for' }).count() > 0, '"Alarm set" confirmation');
+ok(await until(A.page, () => window.__notes.some(n => n.title === '⏰ Reminder set' && n.body.startsWith('Call the venue'))), 'and a "Reminder set" notification with what and when');
 ok((await A.page.inputValue('#alarmText')) === '', 'the box is cleared for the next one');
 
 console.log('\n▶ it rings');
@@ -100,6 +101,18 @@ await signIn(B.page, 'akash');
 await B.page.click('.radio-key[data-screen="tasks"]');
 ok(await until(B.page, () => [...document.querySelectorAll('#alarmList .alarm-main b')].some(b => b.textContent === 'Call the venue')), 'the phone gets the reminders');
 await A.page.click('.radio-key[data-screen="tasks"]');
+
+const notesOn = (page, title, text) => until(page, ([t, x]) => window.__notes.some(n => n.title === t && n.body.includes(x)), [title, text]);
+await A.page.evaluate(() => window.Hustl.addAlarm('Pack the merch', new Date(Date.now() + 3600e3)));
+ok(await notesOn(B.page, '⏰ New reminder', 'Pack the merch'), 'a reminder added on the laptop sends a "New reminder" notification to the phone');
+ok(await until(B.page, () => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('New reminder: Pack the merch'))), 'and shows it in the app');
+await A.page.fill('#remindText', 'Bring the setlist'); await A.page.locator('#taskInput').focus();
+ok(await notesOn(B.page, '📝 Important Reminders', 'Bring the setlist'), 'a new line in the reminders box notifies the other device too');
+const before = await B.page.evaluate(() => window.__notes.length);
+await B.page.evaluate(() => window.Hustl.mergeAlarms([{ id: crypto.randomUUID(), text: 'Old one from last week', due_at: new Date(Date.now() + 864e5).toISOString(),
+  updated_at: new Date(Date.now() - 7 * 864e5).toISOString() }]));
+ok(await B.page.evaluate(n => window.__notes.length === n, before), 'old reminders arriving (e.g. at sign-in) do not cause notifications');
+
 await soon(A.page, 3, 'Leave for the gig');
 ok(await dialogOpen(B.page, 'Leave for the gig'), 'a reminder set on the laptop rings on the phone');
 ok(await dialogOpen(A.page, 'Leave for the gig'), 'and on the laptop');
