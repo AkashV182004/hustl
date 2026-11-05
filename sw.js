@@ -1,8 +1,8 @@
 /* Hustl service worker — cache-first app shell, versioned cache.
    Bump VERSION on every deploy so clients pick up the new files (and the ?v= tags in index.html: tests/version.mjs checks they match). */
-const VERSION = 'hustl-v2.8.1';
+const VERSION = 'hustl-v2.9.0';
 const ASSETS = [
-  './', './index.html', './styles.css', './app.js', './sync.js', './chat.js', './lock.js', './config.js',
+  './', './index.html', './styles.css', './app.js', './sync.js', './chat.js', './ai.js', './lock.js', './config.js',
   './manifest.webmanifest', './vendor/supabase.js',
   './fonts/playfair.woff2', './fonts/playfair-italic.woff2', './fonts/special-elite.woff2', './fonts/caveat.woff2', './fonts/inter.woff2',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png', './icons/favicon.png',

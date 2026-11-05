@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-title" content="Hustl">
   <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/playfair.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.8.1">
+  <link rel="stylesheet" href="styles.css?v=2.9.0">
   <script>
     // Apply the saved theme before first paint to avoid a flash.
     try { var t = localStorage.getItem('hustl:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
@@ -59,6 +59,10 @@
       <button class="radio-key" data-screen="chats">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v10H9l-5 4z"/></svg>
         <span>Chats</span>
+      </button>
+      <button class="radio-key" data-screen="ai">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.9 4.9 4.9 1.9-4.9 1.9-1.9 4.9-1.9-4.9-4.9-1.9 4.9-1.9z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
+        <span>AI</span>
       </button>
       <button class="radio-key" data-screen="settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/></svg>
@@ -330,6 +334,37 @@
         </section>
       </section>
 
+      <!-- ============ HUSTL AI ============ -->
+      <section id="screen-ai" class="screen ai-screen" aria-label="Hustl AI" hidden>
+        <div class="screen-head">
+          <h2 class="section-title">Hustl AI</h2>
+          <span class="ai-left" id="aiLeft"></span>
+        </div>
+        <div class="panel postcard" id="aiSignedOut" hidden>
+          <p class="hand big">Sign in to talk to Hustl AI.</p>
+          <p class="note">It plans your day, adds tasks and reminders, and ticks things off for you.</p>
+          <button class="btn" type="button" id="aiGoSignIn">Sign in from Settings</button>
+        </div>
+        <div class="ai-chat" id="aiChat">
+          <p class="note offline-msg" id="aiOffline" hidden>Radio's off… Hustl AI needs an internet connection.</p>
+          <ol class="ai-log" id="aiLog" aria-live="polite"></ol>
+          <div class="ai-suggest" id="aiSuggest">
+            <button class="chip" type="button" data-say="Plan my day">🗓 Plan my day</button>
+            <button class="chip" type="button" data-say="What's left for today?">✅ What's left today?</button>
+            <button class="chip" type="button" data-say="Remind me to drink water at 4 pm">⏰ Remind me to drink water at 4 pm</button>
+            <button class="chip" type="button" data-say="Add a daily task: 10 push-ups">↻ Add a daily task: 10 push-ups</button>
+          </div>
+          <form class="composer ai-composer" id="aiForm" novalidate>
+            <label class="sr-only" for="aiText">Ask Hustl AI</label>
+            <textarea id="aiText" class="field" rows="1" maxlength="2000" placeholder="Ask Hustl AI…" enterkeyhint="send"></textarea>
+            <button class="btn send-btn" type="submit" id="aiSend" aria-label="Send">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/></svg>
+            </button>
+          </form>
+          <p class="note ai-privacy">Hustl AI uses Google Gemini: your messages and lists are sent to Google to answer. It can make mistakes, so check what it changes. <button class="linkish" type="button" id="aiClear">Clear chat</button></p>
+        </div>
+      </section>
+
       <!-- ============ SETTINGS ============ -->
       <section id="screen-settings" class="screen settings" aria-label="Settings" hidden>
         <h2 class="section-title">Settings</h2>
@@ -505,11 +540,12 @@
     </div>
   </div>
 
-  <script src="config.js?v=2.8.1"></script>
+  <script src="config.js?v=2.9.0"></script>
   <script src="vendor/supabase.js" defer></script>
-  <script src="app.js?v=2.8.1" defer></script>
-  <script src="sync.js?v=2.8.1" defer></script>
-  <script src="chat.js?v=2.8.1" defer></script>
-  <script src="lock.js?v=2.8.1" defer></script>
+  <script src="app.js?v=2.9.0" defer></script>
+  <script src="sync.js?v=2.9.0" defer></script>
+  <script src="chat.js?v=2.9.0" defer></script>
+  <script src="ai.js?v=2.9.0" defer></script>
+  <script src="lock.js?v=2.9.0" defer></script>
 </body>
 </html>

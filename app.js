@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '2.8.1';
+  const APP_VERSION = '2.9.0';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -755,7 +755,7 @@
   // Back (Android button / gesture) works like an app: Chats or Settings → back to the to-do list.
   let screenPushed = false;
   function showScreen(name, { nav = false } = {}) {
-    if (!['tasks', 'chats', 'settings'].includes(name)) name = 'tasks';
+    if (!['tasks', 'chats', 'ai', 'settings'].includes(name)) name = 'tasks';
     if (nav && name === 'tasks' && screenPushed && history.state && history.state.screen) { screenPushed = false; history.back(); return; }
     if (nav && name !== 'tasks' && !screenPushed && location.hash !== '#' + name) {
       history.pushState({ screen: name }, '', '#' + name);
@@ -1158,7 +1158,7 @@
 
   /* Public API for sync.js / chat.js (and debugging). */
   window.Hustl = {
-    version: APP_VERSION, store, state, toast, render, mergeData, mergeNotes, setNote, togglePriority, mergeAlarms, addAlarm, setPushActive, setBadge, rollOver, isDone, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
+    version: APP_VERSION, store, state, toast, render, mergeData, mergeNotes, setNote, togglePriority, mergeAlarms, addAlarm, deleteAlarm, setPushActive, setBadge, rollOver, isDone, addTask, toggleTask, deleteTask, rekeyTasks, showScreen, escapeHTML, uuid, dayKey,
     streakInfo, currentStreak, bestStreak,
     on: fn => { listeners.add(fn); return () => listeners.delete(fn); },
     ready: new Promise(res => addEventListener('hustl:ready', res, { once: true })),

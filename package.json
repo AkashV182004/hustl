@@ -1,10 +1,10 @@
 {
   "name": "hustl",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "private": true,
   "description": "Hustl — an offline-first to-do list PWA with a vinyl daily streak.",
   "scripts": {
-    "test": "node tests/version.mjs && node tests/sql.mjs && node tests/phase1.mjs && node tests/lock.mjs && node tests/sync.mjs && node tests/social.mjs && node tests/chat.mjs && node tests/journal.mjs && node tests/daily.mjs && node tests/alarms.mjs && node tests/webpush.mjs && node tests/pushfn.mjs && node tests/push.mjs && node tests/mobile.mjs",
+    "test": "node tests/version.mjs && node tests/sql.mjs && node tests/phase1.mjs && node tests/lock.mjs && node tests/sync.mjs && node tests/social.mjs && node tests/chat.mjs && node tests/journal.mjs && node tests/daily.mjs && node tests/alarms.mjs && node tests/webpush.mjs && node tests/pushfn.mjs && node tests/push.mjs && node tests/mobile.mjs && node tests/aifn.mjs && node tests/ai.mjs",
     "test:sql": "node tests/sql.mjs",
     "test:app": "node tests/phase1.mjs",
     "test:lock": "node tests/lock.mjs",
@@ -14,6 +14,7 @@
     "test:journal": "node tests/journal.mjs",
     "test:daily": "node tests/daily.mjs",
     "test:alarms": "node tests/alarms.mjs",
+    "test:ai": "node tests/aifn.mjs && node tests/ai.mjs",
     "test:mobile": "node tests/mobile.mjs",
     "test:push": "node tests/webpush.mjs && node tests/pushfn.mjs && node tests/push.mjs && node tests/mobile.mjs",
     "icons": "node tests/make-icons.mjs"

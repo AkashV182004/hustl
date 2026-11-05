@@ -37,6 +37,15 @@ export async function device(browser, { name, base, fake, errors, init, ...opts 
   if (init) await ctx.addInitScript(init);   // runs in the page before the app (e.g. a fake Notification)
   await ctx.exposeFunction('__fakeDb', fake.handle);
   await ctx.route('**/vendor/supabase.js', r => r.fulfill({ path: path.join(root, 'tests', 'fake-supabase.js'), contentType: 'text/javascript' }));
+  // the "ai" Edge Function: tests set fake.ai = (body, auth) => ({ status, json }) to script the replies
+  await ctx.route('https://example.supabase.co/functions/v1/ai', async r => {
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+    if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 200, headers: cors });
+    const body = JSON.parse(r.request().postData() || '{}');
+    (fake.aiCalls ||= []).push({ device: name, auth: r.request().headers().authorization, body });
+    const out = fake.ai ? await fake.ai(body, r.request().headers().authorization) : { status: 503, json: { error: 'not_configured', message: 'Hustl AI isn’t set up yet.' } };
+    return r.fulfill({ status: out.status || 200, contentType: 'application/json', headers: cors, body: JSON.stringify(out.json) });
+  });
   // the "push" Edge Function: record what the app asks it to do
   await ctx.route('https://example.supabase.co/functions/v1/push', async r => {
     if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });

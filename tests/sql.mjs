@@ -15,7 +15,7 @@ const ok = (cond, msg) => { console.log(`${cond ? '  ✓' : '  ✗'} ${msg}`); i
 
 // --- Minimal Supabase environment
 await db.exec(`
-  create role anon nologin; create role authenticated nologin;
+  create role anon nologin; create role authenticated nologin; create role service_role nologin;
   create schema auth;
   create schema extensions;
   create extension pgcrypto schema extensions;
@@ -237,6 +237,15 @@ ok((await db.query(`select count(*)::int as n from public.push_subscriptions`)).
 for (let i = 0; i < 12; i++) await as(U1, `select public.save_push_subscription('https://push.example/${i}', 'k', 'a', 'UTC', 'x')`);
 ok((await db.query(`select count(*)::int as n from public.push_subscriptions where user_id = $1`, [U1])).rows[0].n === 10, 'at most 10 devices per person');
 ok((await db.query(`select column_name from information_schema.columns where table_name = 'alarms' and column_name = 'pushed_at'`)).rows.length === 1, 'alarms remember when they were pushed');
+
+console.log('\n▶ Hustl AI daily limit');
+ok(!!(await as(U1, `select public.ai_take_message('${U1}', 1000)`)).error, "people can't use the AI counter themselves (only the server function)");
+ok(!!(await as(U1, `select * from public.ai_usage`)).error, "or read it");
+await db.exec(`grant usage on schema public to service_role`);
+const asServer = async (lim) => { await db.exec('set role service_role'); try { return (await db.query(`select public.ai_take_message($1, $2) as n`, [U1, lim])).rows[0].n; } finally { await db.exec('reset role'); } };
+ok(await asServer(3) === 1 && await asServer(3) === 2 && await asServer(3) === 3, 'the server function counts each message (1, 2, 3)');
+ok(await asServer(3) === null, 'and says no once the daily limit is reached');
+ok(await asServer(5) === 4, 'a higher limit lets more through');
 
 console.log('\n▶ storage (chat-media)');
 const bucket = (await db.query(`select public from storage.buckets where id = 'chat-media'`)).rows[0];

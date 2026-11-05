@@ -36,7 +36,7 @@ ok((await page.getAttribute('.kind-btn[data-kind="once"]', 'aria-checked')) === 
 await page.screenshot({ path: path.join(shots, 'phone-android-add-daily.png') });
 await page.click('.kind-btn[data-kind="daily"]');
 ok(await until(page, () => window.Hustl.state.tasks.some(t => t.text === 'Morning run' && t.daily)), 'tapping "↻ Daily task" adds it as a daily task');
-ok(await page.locator('#taskList .task', { hasText: 'Morning run' }).locator('.daily-tag').isVisible(), 'it shows a "↻ Daily" tag');
+ok(await until(page, () => [...document.querySelectorAll('#taskList .task.daily')].some(li => li.textContent.includes('Morning run') && li.querySelector('.daily-tag'))), 'it shows a "↻ Daily" tag');
 ok(await until(page, () => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('every day until you remove it'))), 'and says it will be there every day');
 ok(await until(page, () => document.querySelector('.kind-btn[data-kind="once"]').getAttribute('aria-checked') === 'true'), 'the choice goes back to "Just today" for the next task');
 await page.fill('#taskInput', 'Buy milk'); await page.press('#taskInput', 'Enter');

@@ -687,6 +687,37 @@ body.kb-open .toasts { bottom: calc(16px + var(--safe-b)); }
 
 .record-shelf { display: grid; gap: 18px; margin-top: 26px; }
 
+/* ---------- Hustl AI ---------- */
+.ai-left { font-size: .9rem; color: var(--muted); }
+.ai-log { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ai-msg { max-width: 88%; padding: 10px 14px; border-radius: 18px; line-height: 1.45; overflow-wrap: anywhere; box-shadow: var(--shadow-1); }
+.ai-msg p { margin: 0; }
+/* scrolling to the newest message stops above the message box and the bottom menu */
+.ai-msg { scroll-margin-bottom: calc(var(--nav-h) + var(--safe-b) + 130px); }
+@media (min-width: 900px) { .ai-msg { scroll-margin-bottom: 110px; } }
+.ai-msg.me { align-self: flex-end; border-radius: 18px 6px 18px 18px; background: linear-gradient(180deg, #d4733b, #b8561f); color: #fff8ee; }
+.ai-msg.bot { align-self: flex-start; border-radius: 6px 18px 18px 18px; background: var(--card); color: var(--text); border: 1px solid var(--border); }
+.ai-msg.error { border-color: rgba(180, 68, 42, .5); background: rgba(180, 68, 42, .08); }
+.ai-card { margin-top: 8px; padding: 6px 10px; border-radius: 10px; font-size: .92rem; font-weight: 600;
+  background: rgba(107, 122, 58, .14); color: var(--text); border: 1px solid rgba(107, 122, 58, .35); }
+.ai-card.fail { background: rgba(180, 68, 42, .1); border-color: rgba(180, 68, 42, .35); }
+.ai-msg.typing { display: flex; gap: 5px; padding: 14px 16px; }
+.ai-msg.typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: aiDot 1s infinite ease-in-out; }
+.ai-msg.typing span:nth-child(2) { animation-delay: .15s; } .ai-msg.typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes aiDot { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .ai-msg.typing span { animation: none; } }
+.ai-suggest { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.chip { min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-size: .95rem; }
+.chip:hover { border-color: var(--accent); }
+.ai-composer {
+  position: sticky; bottom: calc(var(--nav-h) + var(--safe-b) + 18px); z-index: 5; margin: 0 -4px;
+  border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow-2);
+}
+body.kb-open .ai-composer { bottom: calc(8px + var(--safe-b)); }
+.ai-privacy { margin-top: 10px; font-size: .85rem; }
+.ai-privacy .linkish { margin: 0; min-height: 0; font-size: .85rem; }
+@media (min-width: 900px) { .ai-screen { max-width: 760px; } .ai-composer { bottom: 20px; } }
+
 /* Phone card: install Hustl / turn on reminder alarms */
 .phone-card {
   display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: center; margin: 0 0 16px; padding: 14px 14px 12px;

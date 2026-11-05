@@ -126,6 +126,18 @@ Everything is saved on the device first and synced to your other devices (priori
 `supabase-update.sql` on projects set up before version 2.4; until then they stay on the device).
 Your vinyl streak record, stats and 7-day meter sit below the page.
 
+## Hustl AI (the AI tab)
+An assistant powered by **Google Gemini** (`gemini-3.8-flash`). It sees your tasks and reminders and can add tasks,
+daily tasks and top priorities, tick things off, and set or remove reminders with alarms; every change shows as a card.
+- `supabase/functions/ai/`: the Edge Function. It checks you're signed in, counts the message (**1000 per person
+  per day**, `ai_take_message` in `supabase.sql`), and asks Gemini. The app carries out the actions on the device.
+- Set up once: create a key at **https://aistudio.google.com/apikey** (with billing enabled; on the free tier Google
+  may use what you send to improve its products), then
+  `npx supabase secrets set GEMINI_API_KEY=your-key --remote=<project-ref>` and deploy with
+  `npx supabase functions deploy ai --remote=<project-ref> --no-verify-jwt --use-api`.
+  Optional secrets: `GEMINI_MODEL`, `AI_DAILY_LIMIT`.
+- Your messages and lists are sent to Google to answer. Needs a connection and a signed-in account.
+
 ## Push notifications (alarms when the app is closed)
 - `supabase/functions/push/`: the Edge Function. Every 30 seconds the database (pg_cron + pg_net) asks it to send
   reminders that just came due; the app also asks it to tell your other devices about a new reminder.
@@ -189,6 +201,7 @@ npm test
 - `tests/alarms.mjs`: reminder alarms: setting, ringing, snooze, done, missed reminders, two devices, and an older database.
 - `tests/mobile.mjs`: Hustl on an Android phone and an iPhone: fits the screen, tap sizes, no zoom when typing, install / alarm card, Back button, shortcut.
 - `tests/webpush.mjs`, `tests/pushfn.mjs`, `tests/push.mjs`: push encryption (matches the RFC example), the server function, and real pushes into the service worker with the app closed.
+- `tests/aifn.mjs`, `tests/ai.mjs`: the AI server function (request, actions, limit, errors) and the AI tab on a phone.
 - `tests/version.mjs`: one version number in every file, so browsers never mix old and new files.
 
 ## Releasing an update

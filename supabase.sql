@@ -247,6 +247,34 @@ grant execute on function public.save_push_subscription(text, text, text, text, 
 grant execute on function public.remove_push_subscription(text) to authenticated;
 
 -- ---------------------------------------------------------------------
+-- HUSTL AI — how many assistant messages each person sent today (the "ai" Edge Function enforces a daily limit).
+-- Only the server function (service key) can use this; the app has no access.
+-- ---------------------------------------------------------------------
+create table if not exists public.ai_usage (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  day     date not null,
+  count   integer not null default 0,
+  primary key (user_id, day)
+);
+alter table public.ai_usage enable row level security;
+revoke all on public.ai_usage from anon, authenticated;
+
+-- Counts one message for today (UTC) and returns the new count, or null when the limit is already reached.
+create or replace function public.ai_take_message(p_user uuid, p_limit integer)
+returns integer language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  insert into public.ai_usage as u (user_id, day, count) values (p_user, (now() at time zone 'utc')::date, 1)
+  on conflict (user_id, day) do update set count = u.count + 1
+    where u.count < p_limit
+  returning u.count into n;
+  delete from public.ai_usage where day < (now() at time zone 'utc')::date - 7;   -- keep a week
+  return n;
+end $$;
+revoke all on function public.ai_take_message(uuid, integer) from public, anon, authenticated;
+grant execute on function public.ai_take_message(uuid, integer) to service_role;
+
+-- ---------------------------------------------------------------------
 -- COMPLETION LOG — { day: count } per user. Merged by keeping the larger count.
 -- ---------------------------------------------------------------------
 create table if not exists public.completion_log (

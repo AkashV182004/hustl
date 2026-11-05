@@ -1,4 +1,4 @@
--- Hustl update 2.8 (daily tasks, reminder alarms, push): run once in Supabase → SQL Editor → New query → Run. Safe to run again.
+-- Hustl update 2.9 (Hustl AI; daily tasks, reminder alarms, push): run once in Supabase → SQL Editor → New query → Run. Safe to run again.
 -- Adds: daily tasks; "Important Reminders" with a date and time (alarms), synced between your devices; the device list for
 -- notifications that arrive even when Hustl is closed; and live updates for tasks and the streak.
 -- (Already in supabase.sql for new projects. The every-30-seconds schedule is in supabase-push-schedule.sql.)
@@ -8,6 +8,35 @@
 -- (the "day" it was added for) and is cleared after that day.
 alter table public.tasks add column if not exists daily boolean not null default false;
 alter table public.tasks add column if not exists day date;
+
+
+-- ---------------------------------------------------------------------
+-- HUSTL AI — how many assistant messages each person sent today (the "ai" Edge Function enforces a daily limit).
+-- Only the server function (service key) can use this; the app has no access.
+-- ---------------------------------------------------------------------
+create table if not exists public.ai_usage (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  day     date not null,
+  count   integer not null default 0,
+  primary key (user_id, day)
+);
+alter table public.ai_usage enable row level security;
+revoke all on public.ai_usage from anon, authenticated;
+
+-- Counts one message for today (UTC) and returns the new count, or null when the limit is already reached.
+create or replace function public.ai_take_message(p_user uuid, p_limit integer)
+returns integer language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  insert into public.ai_usage as u (user_id, day, count) values (p_user, (now() at time zone 'utc')::date, 1)
+  on conflict (user_id, day) do update set count = u.count + 1
+    where u.count < p_limit
+  returning u.count into n;
+  delete from public.ai_usage where day < (now() at time zone 'utc')::date - 7;   -- keep a week
+  return n;
+end $$;
+revoke all on function public.ai_take_message(uuid, integer) from public, anon, authenticated;
+grant execute on function public.ai_take_message(uuid, integer) to service_role;
 
 -- ---------------------------------------------------------------------
 -- ALARMS — "Important Reminders" with a date and time. Synced like tasks: last write wins by updated_at.
