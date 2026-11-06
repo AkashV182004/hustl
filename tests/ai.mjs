@@ -1,5 +1,5 @@
 // Hustl AI tab on a phone: signed out / offline states, suggestions, sending what the app knows,
-// carrying out the assistant's actions (task, daily task, priority, tick, reminder, delete) with cards,
+// carrying out the assistant's actions (task, daily task, priority, tick, reminder, delete) with cards, photos,
 // errors and the daily limit, saved chat, safe text. The "ai" function is a scripted stand-in here.
 // Run: node tests/ai.mjs
 import { chromium, devices } from 'playwright';
@@ -118,6 +118,65 @@ await page.click('.radio-key[data-screen="ai"]');
 ok(await until(page, n => document.querySelectorAll('#aiLog .ai-msg p').length === n, n), 'the conversation is still there after reopening');
 await page.click('#aiClear');
 ok(await until(page, () => document.querySelectorAll('#aiLog .ai-msg').length === 1 && !document.querySelector('#aiSuggest').hidden), '"Clear chat" starts fresh');
+
+console.log('\n▶ photos');
+ok(await page.locator('#aiCamera').isVisible(), 'a camera button next to the message box');
+ok(await page.locator('#aiPhotoInput').getAttribute('accept') === 'image/*' && !(await page.locator('#aiPhotoInput').getAttribute('capture')),
+  'it lets the phone offer "Take photo" or the gallery');
+// a real 3000×2000 PNG, made in the page
+const png = Buffer.from(await page.evaluate(() => {
+  const c = document.createElement('canvas'); c.width = 3000; c.height = 2000;
+  const g = c.getContext('2d'); g.fillStyle = '#2a6'; g.fillRect(0, 0, 3000, 2000); g.fillStyle = '#fff'; g.font = '200px sans-serif'; g.fillText('Buy eggs', 300, 1000);
+  return c.toDataURL('image/png').split(',')[1];
+}), 'base64');
+await page.setInputFiles('#aiPhotoInput', { name: 'list.png', mimeType: 'image/png', buffer: png });
+ok(await until(page, () => !document.querySelector('#aiAttach').hidden && document.querySelector('#aiAttachImg').src.startsWith('data:image/jpeg')), 'after taking a photo it shows a preview before sending');
+await page.screenshot({ path: path.join(shots, 'phone-android-ai-photo-ready.png') });
+await page.click('#aiAttachRemove');
+ok(await page.locator('#aiAttach').isHidden() && (await page.evaluate(() => window.HustlAI.photo)) === null, '✕ removes it again');
+
+await page.setInputFiles('#aiPhotoInput', { name: 'list.png', mimeType: 'image/png', buffer: png });
+await until(page, () => !document.querySelector('#aiAttach').hidden);
+fake.ai = body => ({ json: { text: 'It says **Buy eggs**. Want me to add it as a task?', actions: [] } });
+let callsBefore = fake.aiCalls.length;
+await page.fill('#aiText', 'What does this say?'); await page.click('#aiSend');
+await until(page, () => [...document.querySelectorAll('#aiLog .ai-msg.bot p')].some(p => p.textContent.includes('Buy eggs')));
+let sent = fake.aiCalls.at(-1).body;
+ok(fake.aiCalls.length === callsBefore + 1 && sent.image && sent.image.mime === 'image/jpeg' && sent.image.data.startsWith('/9j/'), 'the photo is sent with the message (as a JPEG)');
+const size = await page.evaluate(d => new Promise(r => { const i = new Image(); i.onload = () => r([i.naturalWidth, i.naturalHeight]); i.src = 'data:image/jpeg;base64,' + d; }), sent.image.data);
+ok(size[0] === 1280 && size[1] === 853, `shrunk on the phone first (3000×2000 → ${size.join('×')})`);
+ok(sent.image.data.length < 1_000_000, `small enough to send quickly (${Math.round(sent.image.data.length * 0.75 / 1024)} KB)`);
+ok(sent.messages.at(-1).text === '[photo] What does this say?', 'the question goes with it');
+ok(await page.locator('#aiLog .ai-msg.me img.ai-photo').count() === 1 && await page.locator('#aiAttach').isHidden(), 'your bubble shows the photo, and the preview clears');
+await page.screenshot({ path: path.join(shots, 'phone-android-ai-photo.png') });
+
+await page.setInputFiles('#aiPhotoInput', { name: 'list.png', mimeType: 'image/png', buffer: png });
+await until(page, () => !document.querySelector('#aiAttach').hidden);
+fake.ai = () => ({ json: { text: 'A green card with the words "Buy eggs".', actions: [] } });
+await page.click('#aiSend');
+ok(await until(page, () => document.querySelectorAll('#aiLog .ai-msg.me.photo-only').length === 1), 'a photo can be sent without typing anything');
+sent = fake.aiCalls.at(-1).body;
+ok(sent.messages.at(-1).text === '[photo]' && sent.image && sent.messages.filter(m => m.text.startsWith('[photo]')).length === 2, 'older photos are sent only as "[photo]", just the newest one itself');
+
+fake.ai = () => ({ json: { text: 'Okay.', actions: [] } });
+await page.fill('#aiText', 'Thanks'); await page.click('#aiSend');
+await until(page, () => [...document.querySelectorAll('#aiLog .ai-msg.bot p')].some(p => p.textContent === 'Okay.'));
+ok(!fake.aiCalls.at(-1).body.image, 'the next message doesn’t send the photo again');
+
+callsBefore = fake.aiCalls.length;
+await page.setInputFiles('#aiPhotoInput', { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') });
+await page.waitForTimeout(200);
+ok(await page.locator('#aiAttach').isHidden() && await until(page, () => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('Please choose a photo'))), 'something that isn’t a photo → "Please choose a photo"');
+
+await page.locator('#aiLog img.ai-photo').first().click();
+ok(await until(page, () => document.querySelector('#photoView').open && document.querySelector('#photoViewImg').src.startsWith('data:image/jpeg')), 'tap a photo → it opens full screen');
+await page.click('#photoViewClose');
+
+await page.reload(); await page.evaluate(() => window.Hustl.ready);
+await page.click('.radio-key[data-screen="ai"]');
+ok(await until(page, () => document.querySelectorAll('#aiLog img.ai-photo').length === 2), 'photos stay in the chat after reopening the app');
+await page.click('#aiClear');
+await until(page, () => document.querySelectorAll('#aiLog .ai-msg').length === 1);
 
 console.log('\n▶ computer (minimal use)');
 const { page: desk } = await makeDevice(browser, { name: 'desktop', base, fake, errors, viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });

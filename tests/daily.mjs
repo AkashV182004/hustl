@@ -83,6 +83,8 @@ await page.waitForSelector('#acctSignedIn:not([hidden])');
 ok(await until(page, () => document.querySelector('#onair').dataset.state === 'synced'), 'synced');
 ok([...db.tasks.values()].some(t => t.text === 'Morning run' && t.daily === true && !t.deleted), 'the daily task is saved on the server as daily');
 const { page: p2 } = await device('tablet');
+// same day as the phone (Sun 8 Nov), so the result doesn't depend on today's real date
+await p2.clock.install({ time: new Date(2026, 10, 8, 10, 0, 0) }); await p2.reload(); await p2.evaluate(() => window.Hustl.ready);
 await signIn(p2, 'akash');
 await p2.click('.radio-key[data-screen="tasks"]');
 ok(await until(p2, () => !!document.querySelector('#taskList .task.daily')), 'another device shows it as a daily task too');

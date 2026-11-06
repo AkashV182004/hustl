@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-title" content="Hustl">
   <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/playfair.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.9.0">
+  <link rel="stylesheet" href="styles.css?v=2.10.0">
   <script>
     // Apply the saved theme before first paint to avoid a flash.
     try { var t = localStorage.getItem('hustl:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
@@ -355,13 +355,24 @@
             <button class="chip" type="button" data-say="Add a daily task: 10 push-ups">↻ Add a daily task: 10 push-ups</button>
           </div>
           <form class="composer ai-composer" id="aiForm" novalidate>
+            <div class="ai-attach" id="aiAttach" hidden>
+              <img id="aiAttachImg" alt="Photo to send">
+              <span class="ai-attach-note">Photo ready. Ask something about it, or just send.</span>
+              <button class="icon-plain" type="button" id="aiAttachRemove" aria-label="Remove photo" title="Remove photo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+            <button class="icon-plain camera-btn" type="button" id="aiCamera" aria-label="Add a photo" title="Take or choose a photo">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3.2l1.6-2.5h6.4l1.6 2.5H20v10H4z"/><circle cx="12" cy="13" r="3.6"/></svg>
+            </button>
+            <input type="file" id="aiPhotoInput" accept="image/*" hidden>
             <label class="sr-only" for="aiText">Ask Hustl AI</label>
             <textarea id="aiText" class="field" rows="1" maxlength="2000" placeholder="Ask Hustl AI…" enterkeyhint="send"></textarea>
             <button class="btn send-btn" type="submit" id="aiSend" aria-label="Send">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/></svg>
             </button>
           </form>
-          <p class="note ai-privacy">Hustl AI uses Google Gemini: your messages and lists are sent to Google to answer. It can make mistakes, so check what it changes. <button class="linkish" type="button" id="aiClear">Clear chat</button></p>
+          <p class="note ai-privacy">Hustl AI uses Google Gemini: your messages, photos and lists are sent to Google to answer. It can make mistakes, so check what it changes. <button class="linkish" type="button" id="aiClear">Clear chat</button></p>
         </div>
       </section>
 
@@ -540,12 +551,12 @@
     </div>
   </div>
 
-  <script src="config.js?v=2.9.0"></script>
+  <script src="config.js?v=2.10.0"></script>
   <script src="vendor/supabase.js" defer></script>
-  <script src="app.js?v=2.9.0" defer></script>
-  <script src="sync.js?v=2.9.0" defer></script>
-  <script src="chat.js?v=2.9.0" defer></script>
-  <script src="ai.js?v=2.9.0" defer></script>
-  <script src="lock.js?v=2.9.0" defer></script>
+  <script src="app.js?v=2.10.0" defer></script>
+  <script src="sync.js?v=2.10.0" defer></script>
+  <script src="chat.js?v=2.10.0" defer></script>
+  <script src="ai.js?v=2.10.0" defer></script>
+  <script src="lock.js?v=2.10.0" defer></script>
 </body>
 </html>

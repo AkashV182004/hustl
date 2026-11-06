@@ -129,6 +129,8 @@ Your vinyl streak record, stats and 7-day meter sit below the page.
 ## Hustl AI (the AI tab)
 An assistant powered by **Google Gemini** (`gemini-3.8-flash`). It sees your tasks and reminders and can add tasks,
 daily tasks and top priorities, tick things off, and set or remove reminders with alarms; every change shows as a card.
+Tap 📷 to take or choose a photo: it is shrunk on the phone (1280px JPEG) and Gemini looks at it with your question
+(read a handwritten list, a bill, a timetable…). Only the newest photo is sent; a small copy stays in the chat on the device.
 - `supabase/functions/ai/`: the Edge Function. It checks you're signed in, counts the message (**1000 per person
   per day**, `ai_take_message` in `supabase.sql`), and asks Gemini. The app carries out the actions on the device.
 - **Model chain:** `gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`. Each model
@@ -140,7 +142,7 @@ daily tasks and top priorities, tick things off, and set or remove reminders wit
   `npx supabase secrets set GEMINI_API_KEY=your-key --remote=<project-ref>` and deploy with
   `npx supabase functions deploy ai --remote=<project-ref> --no-verify-jwt --use-api`.
   Optional secrets: `GEMINI_MODELS`, `AI_DAILY_LIMIT`.
-- Your messages and lists are sent to Google to answer. Needs a connection and a signed-in account.
+- Your messages, photos and lists are sent to Google to answer. Needs a connection and a signed-in account.
 
 ## Push notifications (alarms when the app is closed)
 - `supabase/functions/push/`: the Edge Function. Every 30 seconds the database (pg_cron + pg_net) asks it to send

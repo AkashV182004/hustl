@@ -1,6 +1,8 @@
 /* Hustl AI — an assistant tab, answered by Google Gemini through the "ai" Edge Function
    (supabase/functions/ai). It sees your tasks and reminders and can change them: every change it asks for is
    carried out here on the device (so it works with offline storage and sync) and shown as a card.
+   Photos: the camera button takes or chooses one; it is shrunk on the device and sent with the next message for
+   Gemini to look at. Only a small copy is kept in the chat on this device.
    Needs a connection and a signed-in account (for the daily message limit). */
 (() => {
   'use strict';
@@ -9,19 +11,22 @@
   const KEEP = 60;   // messages kept on the device
 
   let H = null, session = null;
-  let log = [];      // [{ role: 'user' | 'model', text, cards?: [{ ok, label }], error?, at }]
+  let log = [];      // [{ role: 'user' | 'model', text, photo?: dataURL, cards?: [{ ok, label }], error?, at }]
+  let photo = null;  // the photo waiting to be sent: { data: base64 JPEG, thumb: small dataURL }
   let busy = false;
 
   const els = {
     screen: $('#screen-ai'), log: $('#aiLog'), form: $('#aiForm'), text: $('#aiText'), send: $('#aiSend'),
     signedOut: $('#aiSignedOut'), chat: $('#aiChat'), left: $('#aiLeft'), suggest: $('#aiSuggest'),
     clear: $('#aiClear'), goSignIn: $('#aiGoSignIn'), offline: $('#aiOffline'),
+    camera: $('#aiCamera'), photoInput: $('#aiPhotoInput'), attach: $('#aiAttach'), attachImg: $('#aiAttachImg'),
+    attachRemove: $('#aiAttachRemove'), photoView: $('#photoView'), photoImg: $('#photoViewImg'),
   };
 
   /* ---------------- Saved conversation ---------------- */
   const key = () => 'ai:' + (session ? session.user.id : 'none');
   async function load() { log = session ? (await H.store.get(key(), [])) || [] : []; render(); }
-  const save = () => session && H.store.set(key(), log.slice(-KEEP));
+  const save = () => session && Promise.resolve(H.store.set(key(), log.slice(-KEEP))).catch(e => console.warn('Hustl AI chat not saved:', e && e.message));
 
   /* ---------------- What the assistant sees ---------------- */
   // Local time with the UTC offset, e.g. 2026-11-06T10:00:00+05:30 — so "at 6 pm" means 6 pm here.
@@ -38,9 +43,11 @@
     return { now: localISO(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone || '', tasks, reminders };
   }
   // History for the model: plain text, with what was actually done written underneath its own answers.
+  // A message that had a photo is sent as "[photo] …" (only the newest photo itself goes to the model).
   const history = () => log.filter(m => !m.error).slice(-20).map(m => ({
     role: m.role,
-    text: m.role === 'model' && m.cards && m.cards.length ? `${m.text}\n[${m.cards.map(c => c.label).join('; ')}]` : m.text,
+    text: m.role === 'model' && m.cards && m.cards.length ? `${m.text}\n[${m.cards.map(c => c.label).join('; ')}]`
+      : m.photo ? `[photo] ${m.text || ''}`.trim() : m.text,
   }));
 
   /* ---------------- Carrying out what it asked for ---------------- */
@@ -93,21 +100,72 @@
     return { ok: false, label: 'Skipped something I can’t do' };
   }
 
+  /* ---------------- Photos ---------------- */
+  const MAX_INPUT = 30 * 1024 * 1024;   // what we accept from the phone; it is shrunk well below this
+  const SEND_SIDE = 1280, KEEP_SIDE = 640;
+  async function readImage(file) {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch {
+      return new Promise((res, rej) => {
+        const img = new Image(); const url = URL.createObjectURL(file);
+        img.onload = () => { URL.revokeObjectURL(url); res(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('unreadable image')); };
+        img.src = url;
+      });
+    }
+  }
+  // The picture as a JPEG data URL no bigger than `side` px on its longest edge.
+  function jpeg(src, side, quality) {
+    const w = src.width || src.naturalWidth, h = src.height || src.naturalHeight;
+    if (!w || !h) throw new Error('empty image');
+    const k = Math.min(1, side / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);   // transparent PNGs get a white background
+    ctx.drawImage(src, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', quality);
+  }
+  async function usePhoto(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type) && !/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.name || '')) return H.toast('Please choose a photo.');
+    if (file.size > MAX_INPUT) return H.toast('That photo is too large (over 30 MB).');
+    try {
+      const src = await readImage(file);
+      const big = jpeg(src, SEND_SIDE, 0.82), thumb = jpeg(src, KEEP_SIDE, 0.72);
+      if (src.close) src.close();
+      photo = { data: big.slice(big.indexOf(',') + 1), thumb };
+    } catch { photo = null; return H.toast('Couldn’t read that photo. Try a JPEG or PNG.'); }
+    showAttach();
+    els.text.focus({ preventScroll: true });
+  }
+  function showAttach() {
+    els.attach.hidden = !photo;
+    if (photo) els.attachImg.src = photo.thumb; else els.attachImg.removeAttribute('src');
+  }
+  function viewPhoto(src) {
+    if (!els.photoView || !els.photoImg) return;
+    els.photoImg.src = src; els.photoImg.alt = 'Your photo';
+    els.photoView.showModal();
+  }
+
   /* ---------------- Talking to it ---------------- */
   async function send(textIn) {
     const text = String(textIn ?? els.text.value).trim().slice(0, 2000);
-    if (!text || busy) return;
+    const pic = textIn == null ? photo : null;   // suggestion chips never carry the waiting photo
+    if ((!text && !pic) || busy) return;
     if (!session) return render();
     if (!navigator.onLine) return H.toast('Hustl AI needs an internet connection.');
-    els.text.value = ''; grow();
-    log.push({ role: 'user', text, at: new Date().toISOString() });
+    if (textIn == null) { els.text.value = ''; grow(); }
+    if (pic) { photo = null; showAttach(); }
+    log.push({ role: 'user', text, ...(pic ? { photo: pic.thumb } : {}), at: new Date().toISOString() });
     busy = true; render({ scroll: true });
     let reply;
     try {
       const res = await fetch(cfg.SUPABASE_URL + '/functions/v1/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: cfg.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + session.access_token },
-        body: JSON.stringify({ messages: history(), context: context() }),
+        body: JSON.stringify({ messages: history(), context: context(), ...(pic ? { image: { mime: 'image/jpeg', data: pic.data } } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) reply = { role: 'model', error: true, text: data.message || (res.status === 404 ? 'Hustl AI isn’t set up yet.' : 'Hustl AI had a problem. Please try again.') };
@@ -143,9 +201,18 @@
   function bubble(m) {
     const li = document.createElement('li');
     li.className = 'ai-msg ' + (m.role === 'user' ? 'me' : 'bot') + (m.error ? ' error' : '');
-    const p = document.createElement('p');
-    if (m.role === 'user') p.textContent = m.text; else richText(p, m.text);
-    li.appendChild(p);
+    if (m.photo) {
+      const img = document.createElement('img');
+      img.className = 'ai-photo'; img.src = m.photo; img.alt = 'Your photo'; img.loading = 'lazy';
+      img.addEventListener('click', () => viewPhoto(m.photo));
+      li.appendChild(img);
+      if (!m.text) li.classList.add('photo-only');
+    }
+    if (m.text || !m.photo) {
+      const p = document.createElement('p');
+      if (m.role === 'user') p.textContent = m.text; else richText(p, m.text);
+      li.appendChild(p);
+    }
     for (const c of m.cards || []) {
       const card = document.createElement('div');
       card.className = 'ai-card' + (c.ok ? '' : ' fail');
@@ -165,7 +232,7 @@
       const hi = document.createElement('li');
       hi.className = 'ai-msg bot hello';
       const p = document.createElement('p');
-      p.textContent = 'Hi! I’m Hustl AI. I can plan your day, add tasks and daily tasks, set reminders with alarms, and tick things off. What do you need?';
+      p.textContent = 'Hi! I’m Hustl AI. I can plan your day, add tasks and daily tasks, set reminders with alarms, and tick things off. Tap 📷 to show me a photo. What do you need?';
       hi.appendChild(p);
       items.push(hi);
     }
@@ -179,6 +246,7 @@
     els.log.replaceChildren(...items);
     els.suggest.hidden = log.length > 0 || busy;
     els.send.disabled = busy;
+    els.camera.disabled = busy;
     if (opts.scroll) requestAnimationFrame(() => els.log.lastElementChild && els.log.lastElementChild.scrollIntoView({ block: 'end', behavior: 'smooth' }));
   }
   function grow() { els.text.style.height = 'auto'; els.text.style.height = Math.min(els.text.scrollHeight, 140) + 'px'; }
@@ -188,6 +256,7 @@
     const was = session && session.user.id;
     session = s || null;
     if (session && session.user.id === was) return;
+    photo = null; showAttach();
     await load();
   }
   addEventListener('hustl:auth', e => { if (H) onAuth(e.detail.session); });
@@ -202,6 +271,10 @@
     });
     els.suggest.addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b) send(b.dataset.say); });
     els.clear.addEventListener('click', async () => { log = []; await save(); render(); H.toast('Chat cleared'); });
+    // Phones offer "Take photo" or the gallery here; computers open a file picker.
+    els.camera.addEventListener('click', () => { if (busy) return; els.photoInput.value = ''; els.photoInput.click(); });
+    els.photoInput.addEventListener('change', () => usePhoto(els.photoInput.files && els.photoInput.files[0]));
+    els.attachRemove.addEventListener('click', () => { photo = null; showAttach(); });
     els.goSignIn.addEventListener('click', () => { H.showScreen('settings'); setTimeout(() => $('#accountPanel').scrollIntoView({ block: 'start' }), 50); });
     addEventListener('online', () => render());
     addEventListener('offline', () => render());
@@ -209,6 +282,6 @@
     await onAuth(window.HustlSync && window.HustlSync.session);
   }
 
-  window.HustlAI = { send, get log() { return log; } };
+  window.HustlAI = { send, usePhoto, get log() { return log; }, get photo() { return photo; } };
   init();
 })();

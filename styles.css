@@ -714,6 +714,16 @@ body.kb-open .toasts { bottom: calc(16px + var(--safe-b)); }
   border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow-2);
 }
 body.kb-open .ai-composer { bottom: calc(8px + var(--safe-b)); }
+.ai-composer { flex-wrap: wrap; }
+.ai-composer .camera-btn { width: 44px; height: 44px; margin-bottom: 2px; }
+.ai-attach { flex: 1 0 100%; display: flex; align-items: center; gap: 10px; padding: 4px 2px 2px; }
+.ai-attach[hidden] { display: none; }
+.ai-attach img { width: 56px; height: 56px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border-strong); flex: none; }
+.ai-attach-note { flex: 1; font-size: .88rem; color: var(--muted); line-height: 1.3; }
+.ai-attach .icon-plain { flex: none; }
+.ai-photo { display: block; width: 100%; max-width: 240px; max-height: 260px; object-fit: cover; border-radius: 12px; margin: -2px 0 6px; cursor: zoom-in; background: rgba(0,0,0,.15); }
+.ai-msg.me.photo-only { padding: 6px; }
+.ai-msg.me.photo-only .ai-photo { margin: 0; }
 .ai-privacy { margin-top: 10px; font-size: .85rem; }
 .ai-privacy .linkish { margin: 0; min-height: 0; font-size: .85rem; }
 @media (min-width: 900px) { .ai-screen { max-width: 760px; } .ai-composer { bottom: 20px; } }
