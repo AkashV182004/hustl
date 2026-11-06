@@ -1,5 +1,6 @@
 // Hustl AI tab on a phone: signed out / offline states, suggestions, sending what the app knows,
 // carrying out the assistant's actions (task, daily task, priority, tick, reminder, delete) with cards, photos,
+// the live camera (capture → ask about it / search it, with a Google search button),
 // errors and the daily limit, saved chat, safe text. The "ai" function is a scripted stand-in here.
 // Run: node tests/ai.mjs
 import { chromium, devices } from 'playwright';
@@ -10,7 +11,8 @@ import { createFakeServer } from './fake-server.mjs';
 const { server, base } = await startServer();
 const fake = createFakeServer();
 const { ok, state } = checker();
-const browser = await chromium.launch();
+// a fake camera (a moving test pattern) so the live camera can be tried
+const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 const errors = [];
 const { defaultBrowserType, ...pixel } = devices['Pixel 7'];
 const until = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
@@ -172,11 +174,89 @@ await page.locator('#aiLog img.ai-photo').first().click();
 ok(await until(page, () => document.querySelector('#photoView').open && document.querySelector('#photoViewImg').src.startsWith('data:image/jpeg')), 'tap a photo → it opens full screen');
 await page.click('#photoViewClose');
 
+await page.waitForTimeout(400);   // let the chat finish saving
 await page.reload(); await page.evaluate(() => window.Hustl.ready);
 await page.click('.radio-key[data-screen="ai"]');
 ok(await until(page, () => document.querySelectorAll('#aiLog img.ai-photo').length === 2), 'photos stay in the chat after reopening the app');
 await page.click('#aiClear');
 await until(page, () => document.querySelectorAll('#aiLog .ai-msg').length === 1);
+
+console.log('\n▶ live camera → ask or search');
+// a phone with a (fake) camera the browser can open
+const { page: cam } = await makeDevice(browser, { name: 'camera-phone', base, fake, errors, ...pixel, colorScheme: 'light', permissions: ['camera'] });
+await signIn(cam, 'akash'); await cam.waitForSelector('#acctSignedIn:not([hidden])');
+await cam.click('.radio-key[data-screen="ai"]');
+await cam.click('#aiCamera');
+ok(await cam.locator('#aiCamMenu').isVisible() && (await cam.locator('#aiCamMenu button').allTextContents()).join('|').match(/Live camera.*\|.*Gallery/),
+  'the camera button offers "Live camera" or "Gallery"');
+await cam.screenshot({ path: path.join(shots, 'phone-android-ai-camera-menu.png') });
+await cam.mouse.click(30, 300);
+ok(await cam.locator('#aiCamMenu').isHidden(), 'tapping elsewhere closes the menu');
+await cam.click('#aiCamera'); await cam.click('#aiCamLive');
+ok(await until(cam, () => document.querySelector('#lensDlg').open && document.querySelector('#lensVideo').videoWidth > 0 && !document.querySelector('#lensSnap').disabled),
+  'Live camera opens full screen with the camera running');
+const facing = await cam.evaluate(() => { const t = document.querySelector('#lensVideo').srcObject.getVideoTracks()[0]; return t.readyState; });
+ok(facing === 'live', 'the camera stream is live');
+await cam.waitForTimeout(300);
+await cam.screenshot({ path: path.join(shots, 'phone-android-ai-live-camera.png') });
+await cam.click('#lensSnap');
+ok(await until(cam, () => !document.querySelector('#lensShot').hidden && !document.querySelector('#lensAfter').hidden && !document.querySelector('#lensVideo').srcObject),
+  'Capture → shows the photo with Retake / Ask about it / Search it, and the camera turns off');
+await cam.screenshot({ path: path.join(shots, 'phone-android-ai-captured.png') });
+await cam.click('#lensRetake');
+ok(await until(cam, () => document.querySelector('#lensShot').hidden && document.querySelector('#lensVideo').videoWidth > 0), 'Retake → back to the live camera');
+await cam.click('#lensSnap');
+await until(cam, () => !document.querySelector('#lensAfter').hidden);
+await cam.click('#lensAsk');
+ok(await until(cam, () => !document.querySelector('#lensDlg').open && !document.querySelector('#aiAttach').hidden && document.activeElement.id === 'aiText'),
+  '"Ask about it" → the photo waits above the message box for your question');
+await cam.click('#aiAttachRemove');
+
+fake.ai = body => ({ json: { text: 'That looks like a **test pattern** from a camera.', actions: [{ name: 'search_web', args: { query: 'camera test pattern colour bars' } }] } });
+let n0 = fake.aiCalls.length;
+await cam.click('#aiCamera'); await cam.click('#aiCamLive');
+await until(cam, () => document.querySelector('#lensVideo').videoWidth > 0 && !document.querySelector('#lensSnap').disabled);
+await cam.click('#lensSnap');
+await until(cam, () => !document.querySelector('#lensAfter').hidden);
+await cam.click('#lensSearch');
+ok(await until(cam, () => !document.querySelector('#lensDlg').open && [...document.querySelectorAll('#aiLog .ai-msg.bot p')].some(p => p.textContent.includes('test pattern'))),
+  '"Search it" → sends the photo right away and Hustl AI says what it is');
+let b = fake.aiCalls.at(-1).body;
+ok(fake.aiCalls.length === n0 + 1 && b.image && b.image.data.startsWith('/9j/') && b.messages.at(-1).text === '[photo] What is this? Search it for me.', 'with the photo and "What is this? Search it for me."');
+const link = cam.locator('#aiLog a.ai-search-link').last();
+ok(await link.getAttribute('href') === 'https://www.google.com/search?q=camera%20test%20pattern%20colour%20bars'
+  && await link.getAttribute('target') === '_blank' && (await link.getAttribute('rel')).includes('noopener'), 'and a "🔍 Search Google" button that opens the results');
+await cam.screenshot({ path: path.join(shots, 'phone-android-ai-search.png') });
+await cam.context().route('https://www.google.com/**', r => r.fulfill({ contentType: 'text/html', body: '<title>results</title>' }));   // stay offline
+const [popup] = await Promise.all([cam.waitForEvent('popup', { timeout: 4000 }).catch(() => null), link.click()]);
+ok(popup && popup.url().startsWith('https://www.google.com/search?q=camera'), 'tapping it opens Google search');
+if (popup) await popup.close();
+
+await cam.fill('#aiText', 'Is this sold online?');
+fake.ai = () => ({ json: { text: 'Here you go.', actions: [{ name: 'search_web', args: { query: '<script>alert(1)</script> "quotes" & more' } }] } });
+await cam.click('#aiCamera'); await cam.click('#aiCamLive');
+await until(cam, () => document.querySelector('#lensVideo').videoWidth > 0 && !document.querySelector('#lensSnap').disabled);
+await cam.click('#lensSnap'); await until(cam, () => !document.querySelector('#lensAfter').hidden);
+await cam.click('#lensSearch');
+await until(cam, () => [...document.querySelectorAll('#aiLog .ai-msg.bot p')].some(p => p.textContent === 'Here you go.'));
+ok(fake.aiCalls.at(-1).body.messages.at(-1).text === '[photo] Is this sold online?', 'a question you already typed is used instead');
+ok(await cam.locator('#aiLog a.ai-search-link').last().getAttribute('href') === 'https://www.google.com/search?q=' + encodeURIComponent('<script>alert(1)</script> "quotes" & more')
+  && await cam.evaluate(() => !document.querySelector('#aiLog script')), 'odd search text is made safe (shown as text, sent as a proper search)');
+
+await cam.click('#aiCamera'); await cam.click('#aiCamLive');
+await until(cam, () => document.querySelector('#lensVideo').videoWidth > 0);
+await cam.click('#lensClose');
+ok(await until(cam, () => !document.querySelector('#lensDlg').open && !document.querySelector('#lensVideo').srcObject), '✕ closes the camera and turns it off');
+
+// no permission → a clear message, gallery still possible
+const { page: noCam } = await makeDevice(browser, { name: 'no-camera', base, fake, errors, ...pixel, colorScheme: 'light' });
+await signIn(noCam, 'akash'); await noCam.waitForSelector('#acctSignedIn:not([hidden])');
+await noCam.evaluate(() => { navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('denied', 'NotAllowedError')); });
+await noCam.click('.radio-key[data-screen="ai"]');
+await noCam.click('#aiCamera'); await noCam.click('#aiCamLive');
+ok(await until(noCam, () => !document.querySelector('#lensMsg').hidden && document.querySelector('#lensMsg').textContent.includes('Allow camera access') && !document.querySelector('#lensGallery').hidden),
+  'camera blocked → says how to allow it; the gallery button still works');
+await noCam.click('#lensClose');
 
 console.log('\n▶ computer (minimal use)');
 const { page: desk } = await makeDevice(browser, { name: 'desktop', base, fake, errors, viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });

@@ -1,8 +1,9 @@
 /* Hustl AI — an assistant tab, answered by Google Gemini through the "ai" Edge Function
    (supabase/functions/ai). It sees your tasks and reminders and can change them: every change it asks for is
    carried out here on the device (so it works with offline storage and sync) and shown as a card.
-   Photos: the camera button takes or chooses one; it is shrunk on the device and sent with the next message for
-   Gemini to look at. Only a small copy is kept in the chat on this device.
+   Photos: the camera button opens a live camera (capture, then "Ask about it" or "Search it") or the gallery; the
+   photo is shrunk on the device and sent with the next message for Gemini to look at. Only a small copy is kept
+   in the chat on this device. "Search it" asks Hustl AI what it is; it answers and gives a Google search button.
    Needs a connection and a signed-in account (for the daily message limit). */
 (() => {
   'use strict';
@@ -21,6 +22,10 @@
     clear: $('#aiClear'), goSignIn: $('#aiGoSignIn'), offline: $('#aiOffline'),
     camera: $('#aiCamera'), photoInput: $('#aiPhotoInput'), attach: $('#aiAttach'), attachImg: $('#aiAttachImg'),
     attachRemove: $('#aiAttachRemove'), photoView: $('#photoView'), photoImg: $('#photoViewImg'),
+    camMenu: $('#aiCamMenu'), camLive: $('#aiCamLive'), camPick: $('#aiCamPick'),
+    lens: $('#lensDlg'), lensVideo: $('#lensVideo'), lensShot: $('#lensShot'), lensMsg: $('#lensMsg'), lensClose: $('#lensClose'),
+    lensFlip: $('#lensFlip'), lensLive: $('#lensLive'), lensAfter: $('#lensAfter'), lensGallery: $('#lensGallery'), lensSnap: $('#lensSnap'),
+    lensRetake: $('#lensRetake'), lensAsk: $('#lensAsk'), lensSearch: $('#lensSearch'),
   };
 
   /* ---------------- Saved conversation ---------------- */
@@ -97,6 +102,10 @@
       await H.deleteAlarm(a.id);
       return { ok: true, label: `🗑 Reminder removed: ${a.text}` };
     }
+    if (name === 'search_web') {
+      const q = String(args.query || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+      return q ? { ok: true, label: `🔍 Search Google: ${q}`, search: q } : { ok: false, label: 'Couldn’t make a search for that' };
+    }
     return { ok: false, label: 'Skipped something I can’t do' };
   }
 
@@ -126,15 +135,19 @@
     ctx.drawImage(src, 0, 0, c.width, c.height);
     return c.toDataURL('image/jpeg', quality);
   }
+  // What gets sent (up to 1280px) and the small copy kept in the chat (640px).
+  function makePhoto(src) {
+    const big = jpeg(src, SEND_SIDE, 0.82), thumb = jpeg(src, KEEP_SIDE, 0.72);
+    return { data: big.slice(big.indexOf(',') + 1), thumb };
+  }
   async function usePhoto(file) {
     if (!file) return;
     if (!/^image\//.test(file.type) && !/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.name || '')) return H.toast('Please choose a photo.');
     if (file.size > MAX_INPUT) return H.toast('That photo is too large (over 30 MB).');
     try {
       const src = await readImage(file);
-      const big = jpeg(src, SEND_SIDE, 0.82), thumb = jpeg(src, KEEP_SIDE, 0.72);
+      photo = makePhoto(src);
       if (src.close) src.close();
-      photo = { data: big.slice(big.indexOf(',') + 1), thumb };
     } catch { photo = null; return H.toast('Couldn’t read that photo. Try a JPEG or PNG.'); }
     showAttach();
     els.text.focus({ preventScroll: true });
@@ -147,6 +160,67 @@
     if (!els.photoView || !els.photoImg) return;
     els.photoImg.src = src; els.photoImg.alt = 'Your photo';
     els.photoView.showModal();
+  }
+
+  /* ---------------- Live camera ---------------- */
+  const canLive = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  let lensStream = null, facing = 'environment', shot = null;
+  function menu(open) {
+    els.camMenu.hidden = !open;
+    els.camera.setAttribute('aria-expanded', String(!!open));
+  }
+  function stopLens() {
+    if (lensStream) { lensStream.getTracks().forEach(t => t.stop()); lensStream = null; }
+    els.lensVideo.srcObject = null;
+  }
+  function lensState(captured) {
+    els.lensVideo.hidden = captured; els.lensShot.hidden = !captured;
+    els.lensLive.hidden = captured; els.lensAfter.hidden = !captured;
+    els.lensFlip.disabled = captured;
+  }
+  async function startLens() {
+    stopLens();
+    els.lensMsg.hidden = true; els.lensSnap.disabled = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+      if (!els.lens.open) { stream.getTracks().forEach(t => t.stop()); return; }   // closed while we were asking
+      lensStream = stream;
+      els.lensVideo.srcObject = stream;
+      els.lensVideo.classList.toggle('mirror', facing === 'user');
+      await els.lensVideo.play().catch(() => {});
+      els.lensSnap.disabled = false;
+      const cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter(d => d.kind === 'videoinput');
+      els.lensFlip.hidden = cams.length < 2;
+    } catch {
+      els.lensMsg.textContent = 'Couldn’t open the camera. Allow camera access for Hustl in your phone’s settings, or choose a photo from the gallery.';
+      els.lensMsg.hidden = false;
+    }
+  }
+  async function openLens() {
+    menu(false);
+    if (!canLive()) { els.photoInput.value = ''; els.photoInput.click(); return; }
+    shot = null; lensState(false);
+    els.lens.showModal();
+    await startLens();
+  }
+  function snapLens() {
+    const v = els.lensVideo;
+    if (!v.videoWidth) return;
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);   // as the camera sees it (text stays readable)
+    try { shot = makePhoto(c); } catch { return H.toast('Couldn’t take the picture. Please try again.'); }
+    els.lensShot.src = shot.thumb;
+    lensState(true);
+    stopLens();
+    els.lensSearch.focus();
+  }
+  function useShot(then) {
+    if (!shot) return;
+    photo = shot; shot = null;
+    els.lens.close();
+    showAttach();
+    then();
   }
 
   /* ---------------- Talking to it ---------------- */
@@ -215,8 +289,15 @@
     }
     for (const c of m.cards || []) {
       const card = document.createElement('div');
-      card.className = 'ai-card' + (c.ok ? '' : ' fail');
-      card.textContent = c.ok ? c.label : '⚠ ' + c.label;
+      card.className = 'ai-card' + (c.ok ? '' : ' fail') + (c.ok && c.search ? ' search' : '');
+      if (c.ok && c.search) {
+        const a = document.createElement('a');
+        a.className = 'ai-search-link';
+        a.href = 'https://www.google.com/search?q=' + encodeURIComponent(String(c.search).slice(0, 120));
+        a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.textContent = '🔍 Search Google: ' + c.search;
+        card.appendChild(a);
+      } else card.textContent = c.ok ? c.label : '⚠ ' + c.label;
       li.appendChild(card);
     }
     return li;
@@ -272,7 +353,28 @@
     els.suggest.addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b) send(b.dataset.say); });
     els.clear.addEventListener('click', async () => { log = []; await save(); render(); H.toast('Chat cleared'); });
     // Phones offer "Take photo" or the gallery here; computers open a file picker.
-    els.camera.addEventListener('click', () => { if (busy) return; els.photoInput.value = ''; els.photoInput.click(); });
+    els.camera.setAttribute('aria-haspopup', 'menu');
+    els.camera.addEventListener('click', e => {
+      e.stopPropagation();
+      if (busy) return;
+      if (!canLive()) { els.photoInput.value = ''; els.photoInput.click(); return; }   // no live camera here: just the picker
+      menu(els.camMenu.hidden);
+    });
+    els.camLive.addEventListener('click', openLens);
+    els.camPick.addEventListener('click', () => { menu(false); els.photoInput.value = ''; els.photoInput.click(); });
+    document.addEventListener('click', e => { if (!els.camMenu.hidden && !els.camMenu.contains(e.target)) menu(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !els.camMenu.hidden) { menu(false); els.camera.focus(); } });
+    els.lensSnap.addEventListener('click', snapLens);
+    els.lensClose.addEventListener('click', () => els.lens.close());
+    els.lens.addEventListener('close', () => { stopLens(); shot = null; });
+    els.lensFlip.addEventListener('click', () => { facing = facing === 'environment' ? 'user' : 'environment'; startLens(); });
+    els.lensRetake.addEventListener('click', () => { shot = null; lensState(false); startLens(); });
+    els.lensGallery.addEventListener('click', () => { els.lens.close(); els.photoInput.value = ''; els.photoInput.click(); });
+    els.lensAsk.addEventListener('click', () => useShot(() => els.text.focus({ preventScroll: true })));
+    els.lensSearch.addEventListener('click', () => useShot(() => {
+      if (!els.text.value.trim()) els.text.value = 'What is this? Search it for me.';
+      send();
+    }));
     els.photoInput.addEventListener('change', () => usePhoto(els.photoInput.files && els.photoInput.files[0]));
     els.attachRemove.addEventListener('click', () => { photo = null; showAttach(); });
     els.goSignIn.addEventListener('click', () => { H.showScreen('settings'); setTimeout(() => $('#accountPanel').scrollIntoView({ block: 'start' }), 50); });
@@ -282,6 +384,6 @@
     await onAuth(window.HustlSync && window.HustlSync.session);
   }
 
-  window.HustlAI = { send, usePhoto, get log() { return log; }, get photo() { return photo; } };
+  window.HustlAI = { send, usePhoto, openLens, get log() { return log; }, get photo() { return photo; } };
   init();
 })();

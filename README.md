@@ -129,8 +129,9 @@ Your vinyl streak record, stats and 7-day meter sit below the page.
 ## Hustl AI (the AI tab)
 An assistant powered by **Google Gemini** (`gemini-3.8-flash`). It sees your tasks and reminders and can add tasks,
 daily tasks and top priorities, tick things off, and set or remove reminders with alarms; every change shows as a card.
-Tap 📷 to take or choose a photo: it is shrunk on the phone (1280px JPEG) and Gemini looks at it with your question
-(read a handwritten list, a bill, a timetable…). Only the newest photo is sent; a small copy stays in the chat on the device.
+Tap 📷 for the **live camera** (capture, then "Ask about it" or "🔍 Search it") or the gallery. The photo is shrunk on the phone (1280px JPEG) and Gemini looks at it with your question
+(read a handwritten list, a bill, a timetable…). "Search it" identifies what it is and gives a "🔍 Search Google" button with a good query
+(free; Gemini's own Google Search grounding needs billing). Only the newest photo is sent; a small copy stays in the chat on the device.
 - `supabase/functions/ai/`: the Edge Function. It checks you're signed in, counts the message (**1000 per person
   per day**, `ai_take_message` in `supabase.sql`), and asks Gemini. The app carries out the actions on the device.
 - **Model chain:** `gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`. Each model

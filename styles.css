@@ -1149,3 +1149,43 @@ body.convo-open .toasts { bottom: calc(92px + var(--safe-b)) !important; }
   .record { animation: none !important; }
   .streak-card[data-state="at-risk"] .platter { animation: none !important; }
 }
+
+/* ---------- Hustl AI: camera menu + live camera ---------- */
+.ai-cam-menu { position: absolute; left: 6px; bottom: calc(100% + 8px); z-index: 6; display: flex; flex-direction: column; min-width: 230px;
+  background: var(--card); border: 1px solid var(--border-strong); border-radius: 16px; box-shadow: var(--shadow-2); overflow: hidden; }
+.ai-cam-menu[hidden] { display: none; }
+.ai-cam-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 52px; padding: 10px 16px; border: 0;
+  background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.ai-cam-menu button + button { border-top: 1px solid var(--border); }
+.ai-cam-menu button:hover, .ai-cam-menu button:focus-visible { background: var(--accent-soft); }
+.ai-cam-menu small { font-weight: 400; font-size: .82rem; color: var(--muted); }
+
+.lens { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #000; color: #fff; overflow: hidden; }
+.lens[open] { display: block; }
+.lens::backdrop { background: #000; }
+.lens-stage { position: absolute; inset: 0; display: grid; place-items: center; }
+.lens-stage video, .lens-stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.lens-stage video.mirror { transform: scaleX(-1); }
+.lens-stage [hidden] { display: none; }
+.lens-msg { position: absolute; left: 24px; right: 24px; top: 40%; margin: 0; text-align: center; font-size: 1rem; line-height: 1.5; color: #f1e6d2; }
+.lens-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 24px; background: linear-gradient(rgba(0,0,0,.55), transparent); }
+.lens-title { font-weight: 700; letter-spacing: .02em; }
+.lens-bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 20px calc(24px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+.lens-live { display: flex; align-items: center; justify-content: space-between; max-width: 420px; margin: 0 auto; }
+.lens-live[hidden], .lens-after[hidden] { display: none; }
+.lens-round { width: 48px; height: 48px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); background: rgba(0,0,0,.35); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.lens-round svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.lens-round:disabled { opacity: .35; }
+.lens-spacer { width: 48px; }
+.lens-shutter { width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff; background: rgba(255,255,255,.9); box-shadow: 0 0 0 4px rgba(0,0,0,.25); cursor: pointer; }
+.lens-shutter:active { transform: scale(.94); }
+.lens-shutter:disabled { opacity: .4; }
+.lens-after { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 520px; margin: 0 auto; }
+.lens-btn { flex: 1 1 0; min-width: 0; min-height: 52px; white-space: nowrap; }
+.lens .btn.ghost { color: #fff; border-color: rgba(255,255,255,.5); background: rgba(0,0,0,.35); }
+
+.ai-card.search { padding: 0; background: none; border: 0; }
+.ai-search-link { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-radius: 12px; text-decoration: none; font-weight: 600;
+  color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); overflow-wrap: anywhere; }
+.ai-search-link:hover { filter: brightness(1.05); }
